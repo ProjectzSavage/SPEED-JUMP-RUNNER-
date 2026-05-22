@@ -1,0 +1,80 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local leaderboardData = {}
+
+local function formatNumber(num)
+	if num >= 1000000000 then
+		return string.format("%.1fB", num / 1000000000)
+	elseif num >= 1000000 then
+		return string.format("%.1fM", num / 1000000)
+	elseif num >= 1000 then
+		return string.format("%.1fK", num / 1000)
+	else
+		return tostring(num)
+	end
+end
+
+local function updateLeaderboard()
+	local speedBoard = {}
+	local jumpBoard = {}
+	local rebirthBoard = {}
+
+	for _, player in pairs(Players:GetPlayers()) do
+		local leaderstats = player:FindFirstChild("leaderstats")
+		if leaderstats then
+			local speed = leaderstats:FindFirstChild("Speed")
+			local jumps = leaderstats:FindFirstChild("Jumps")
+			local rebirths = leaderstats:FindFirstChild("Rebirths")
+
+			if speed then
+				table.insert(speedBoard, {player.Name, speed.Value})
+			end
+			if jumps then
+				table.insert(jumpBoard, {player.Name, jumps.Value})
+			end
+			if rebirths then
+				table.insert(rebirthBoard, {player.Name, rebirths.Value})
+			end
+		end
+	end
+
+	table.sort(speedBoard, function(a, b) return a[2] > b[2] end)
+	table.sort(jumpBoard, function(a, b) return a[2] > b[2] end)
+	table.sort(rebirthBoard, function(a, b) return a[2] > b[2] end)
+
+	leaderboardData = {
+		Speed = speedBoard,
+		Jumps = jumpBoard,
+		Rebirths = rebirthBoard
+	}
+
+	local leaderboardRemote = ReplicatedStorage:FindFirstChild("LeaderboardData")
+	if not leaderboardRemote then
+		leaderboardRemote = Instance.new("RemoteEvent")
+		leaderboardRemote.Name = "LeaderboardData"
+		leaderboardRemote.Parent = ReplicatedStorage
+	end
+
+	for _, player in pairs(Players:GetPlayers()) do
+		leaderboardRemote:FireClient(player, leaderboardData)
+	end
+end
+
+Players.PlayerAdded:Connect(function(player)
+	wait(2)
+	updateLeaderboard()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	updateLeaderboard()
+end)
+
+spawn(function()
+	while wait(10) do
+		updateLeaderboard()
+	end
+end)
+
+updateLeaderboard()
