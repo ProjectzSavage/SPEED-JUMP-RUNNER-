@@ -1,0 +1,238 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local SKINS = {
+	{
+		name = "Flash",
+		speedReq = 1000,
+		rebirthReq = 1,
+		speedBoost = 0.05,
+		description = "+5% Speed Boost",
+		color = Color3.fromRGB(255, 0, 0)
+	},
+	{
+		name = "Speedster",
+		speedReq = 5000,
+		rebirthReq = 2,
+		speedBoost = 0.10,
+		description = "+10% Speed Boost",
+		color = Color3.fromRGB(0, 150, 255)
+	},
+	{
+		name = "Velocity",
+		speedReq = 10000,
+		rebirthReq = 3,
+		speedBoost = 0.15,
+		description = "+15% Speed Boost",
+		color = Color3.fromRGB(255, 215, 0)
+	},
+	{
+		name = "Hypersonic",
+		speedReq = 25000,
+		rebirthReq = 4,
+		speedBoost = 0.20,
+		description = "+20% Speed Boost",
+		color = Color3.fromRGB(138, 43, 226)
+	}
+}
+
+local equipSkinRemote = ReplicatedStorage:WaitForChild("EquipSkin")
+
+local function checkHierarchy()
+	local skinGUI = playerGui:FindFirstChild("SkinGUI")
+	if not skinGUI then
+		warn("SkinGUI ScreenGui not found!")
+		return false
+	end
+
+	local toggleButton = skinGUI:FindFirstChild("ToggleButton")
+	local mainFrame = skinGUI:FindFirstChild("MainFrame")
+	local skinList = mainFrame and mainFrame:FindFirstChild("SkinList")
+	local closeButton = mainFrame and mainFrame:FindFirstChild("CloseButton")
+	local equipFrame = mainFrame and mainFrame:FindFirstChild("EquipFrame")
+	local selectedSkinLabel = equipFrame and equipFrame:FindFirstChild("SelectedSkinLabel")
+	local equipButton = equipFrame and equipFrame:FindFirstChild("EquipButton")
+	local cancelButton = equipFrame and equipFrame:FindFirstChild("CancelButton")
+
+	if not toggleButton or not mainFrame or not skinList or not closeButton or not equipFrame or not selectedSkinLabel or not equipButton or not cancelButton then
+		warn("Skin GUI hierarchy is incomplete!")
+		return false
+	end
+
+	print("Skin GUI elements found successfully!")
+	return true, skinGUI, toggleButton, mainFrame, skinList, closeButton, equipFrame, selectedSkinLabel, equipButton, cancelButton
+end
+
+wait(2)
+
+local success, skinGUI, toggleButton, mainFrame, skinList, closeButton, equipFrame, selectedSkinLabel, equipButton, cancelButton = checkHierarchy()
+if not success then
+	error("Skin GUI hierarchy is incorrect!")
+end
+
+local selectedSkin = nil
+
+local function formatNumber(num)
+	if num >= 1000000000 then
+		return string.format("%.1fB", num / 1000000000)
+	elseif num >= 1000000 then
+		return string.format("%.1fM", num / 1000000)
+	elseif num >= 1000 then
+		return string.format("%.1fK", num / 1000)
+	else
+		return tostring(num)
+	end
+end
+
+local function isUnlocked(skin)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return false end
+
+	local speed = leaderstats:FindFirstChild("Speed")
+	local rebirths = leaderstats:FindFirstChild("Rebirths")
+
+	if not speed or not rebirths then return false end
+
+	return speed.Value >= skin.speedReq and rebirths.Value >= skin.rebirthReq
+end
+
+local function updateSkinDisplay()
+	for _, child in pairs(skinList:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+
+	for i, skin in pairs(SKINS) do
+		local skinFrame = Instance.new("Frame")
+		skinFrame.Size = UDim2.new(1, 0, 0, 80)
+		skinFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+		skinFrame.Parent = skinList
+
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Size = UDim2.new(0.3, 0, 0.5, 0)
+		nameLabel.Position = UDim2.new(0, 5, 0, 0)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = skin.name
+		nameLabel.TextColor3 = skin.color
+		nameLabel.TextScaled = true
+		nameLabel.Font = Enum.Font.GothamBold
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.Parent = skinFrame
+
+		local descLabel = Instance.new("TextLabel")
+		descLabel.Size = UDim2.new(0.4, 0, 0.3, 0)
+		descLabel.Position = UDim2.new(0, 5, 0.5, 0)
+		descLabel.BackgroundTransparency = 1
+		descLabel.Text = skin.description
+		descLabel.TextColor3 = Color3.fromRGB(0, 255, 127)
+		descLabel.TextScaled = true
+		descLabel.Font = Enum.Font.Gotham
+		descLabel.TextXAlignment = Enum.TextXAlignment.Left
+		descLabel.Parent = skinFrame
+
+		local reqLabel = Instance.new("TextLabel")
+		reqLabel.Size = UDim2.new(0.4, 0, 0.2, 0)
+		reqLabel.Position = UDim2.new(0, 5, 0.8, 0)
+		reqLabel.BackgroundTransparency = 1
+		reqLabel.Text = formatNumber(skin.speedReq) .. " Speed, " .. skin.rebirthReq .. " Rebirths"
+		reqLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+		reqLabel.TextScaled = true
+		reqLabel.Font = Enum.Font.Gotham
+		reqLabel.TextXAlignment = Enum.TextXAlignment.Left
+		reqLabel.Parent = skinFrame
+
+		local statusButton = Instance.new("TextButton")
+		statusButton.Size = UDim2.new(0.2, 0, 0.6, 0)
+		statusButton.Position = UDim2.new(0.75, 0, 0.2, 0)
+		statusButton.BackgroundColor3 = isUnlocked(skin) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+		statusButton.Text = isUnlocked(skin) and "EQUIP" or "LOCKED"
+		statusButton.TextScaled = true
+		statusButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+		statusButton.Font = Enum.Font.GothamBold
+		statusButton.Parent = skinFrame
+
+		if isUnlocked(skin) then
+			statusButton.MouseButton1Click:Connect(function()
+				selectedSkin = skin
+				selectedSkinLabel.Text = skin.name
+				selectedSkinLabel.TextColor3 = skin.color
+				equipFrame.Visible = true
+			end)
+		end
+	end
+
+	local removeSkinFrame = Instance.new("Frame")
+	removeSkinFrame.Size = UDim2.new(1, 0, 0, 60)
+	removeSkinFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+	removeSkinFrame.Parent = skinList
+
+	local removeLabel = Instance.new("TextLabel")
+	removeLabel.Size = UDim2.new(0.6, 0, 1, 0)
+	removeLabel.Position = UDim2.new(0, 5, 0, 0)
+	removeLabel.BackgroundTransparency = 1
+	removeLabel.Text = "Remove Current Skin"
+	removeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	removeLabel.TextScaled = true
+	removeLabel.Font = Enum.Font.GothamBold
+	removeLabel.TextXAlignment = Enum.TextXAlignment.Left
+	removeLabel.Parent = removeSkinFrame
+
+	local removeButton = Instance.new("TextButton")
+	removeButton.Size = UDim2.new(0.2, 0, 0.8, 0)
+	removeButton.Position = UDim2.new(0.75, 0, 0.1, 0)
+	removeButton.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+	removeButton.Text = "REMOVE"
+	removeButton.TextScaled = true
+	removeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	removeButton.Font = Enum.Font.GothamBold
+	removeButton.Parent = removeSkinFrame
+
+	removeButton.MouseButton1Click:Connect(function()
+		print("Removing skin")
+		equipSkinRemote:FireServer(nil)
+	end)
+
+	skinList.CanvasSize = UDim2.new(0, 0, 0, (#SKINS + 1) * 85)
+end
+
+equipButton.MouseButton1Click:Connect(function()
+	if selectedSkin then
+		print("=== CLIENT: EQUIPPING SKIN ===")
+		print("Selected skin name:", selectedSkin.name)
+		print("Firing EquipSkin remote with:", selectedSkin.name)
+		equipSkinRemote:FireServer(selectedSkin.name)
+		print("Remote fired successfully")
+		equipFrame.Visible = false
+	else
+		print("ERROR: No skin selected!")
+	end
+end)
+
+cancelButton.MouseButton1Click:Connect(function()
+	equipFrame.Visible = false
+end)
+
+toggleButton.MouseButton1Click:Connect(function()
+	mainFrame.Visible = not mainFrame.Visible
+	if mainFrame.Visible then
+		updateSkinDisplay()
+	end
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+	mainFrame.Visible = false
+end)
+
+UserInputService.InputBegan:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.K then
+		mainFrame.Visible = not mainFrame.Visible
+		if mainFrame.Visible then
+			updateSkinDisplay()
+		end
+	end
+end)
