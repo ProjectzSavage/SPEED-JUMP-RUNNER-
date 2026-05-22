@@ -1,0 +1,106 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local equipTitleRemote = Instance.new("RemoteEvent")
+equipTitleRemote.Name = "EquipTitle"
+equipTitleRemote.Parent = ReplicatedStorage
+
+local equippedTitles = {}
+
+local TITLES = {
+	{name = "Newbie", speedReq = 0, jumpReq = 0, rebirthReq = 0, color = Color3.fromRGB(255, 255, 255)},
+	{name = "Walker", speedReq = 50, jumpReq = 10, rebirthReq = 0, color = Color3.fromRGB(0, 255, 0)},
+	{name = "Runner", speedReq = 100, jumpReq = 500, rebirthReq = 1, color = Color3.fromRGB(0, 150, 255)},
+	{name = "Speedster", speedReq = 500, jumpReq = 2000, rebirthReq = 1, color = Color3.fromRGB(255, 165, 0)},
+	{name = "Lightning", speedReq = 1000, jumpReq = 5000, rebirthReq = 2, color = Color3.fromRGB(255, 215, 0)},
+	{name = "Sonic", speedReq = 5000, jumpReq = 20000, rebirthReq = 3, color = Color3.fromRGB(255, 0, 255)},
+	{name = "Flash", speedReq = 25000, jumpReq = 100000, rebirthReq = 4, color = Color3.fromRGB(255, 0, 0)}
+}
+
+local function getHighestUnlockedTitle(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return TITLES[1] end
+
+	local speed = leaderstats:FindFirstChild("Speed")
+	local jumps = leaderstats:FindFirstChild("Jumps")
+	local rebirths = leaderstats:FindFirstChild("Rebirths")
+
+	if not speed or not jumps or not rebirths then return TITLES[1] end
+
+	local highestTitle = TITLES[1]
+
+	for _, title in pairs(TITLES) do
+		if speed.Value >= title.speedReq and jumps.Value >= title.jumpReq and rebirths.Value >= title.rebirthReq then
+			highestTitle = title
+		end
+	end
+
+	return highestTitle
+end
+
+local function updatePlayerTitle(player)
+	if not player.Character then return end
+
+	local head = player.Character:FindFirstChild("Head")
+	if not head then return end
+
+	local existingGui = head:FindFirstChild("TitleGui")
+	if existingGui then
+		existingGui:Destroy()
+	end
+
+	local titleToShow = equippedTitles[player] or getHighestUnlockedTitle(player)
+
+	local billboardGui = Instance.new("BillboardGui")
+	billboardGui.Name = "TitleGui"
+	billboardGui.Size = UDim2.new(4, 0, 1, 0)
+	billboardGui.Adornee = head
+	billboardGui.StudsOffset = Vector3.new(0, 2, 0)
+	billboardGui.Parent = head
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Name = "TitleLabel"
+	titleLabel.Size = UDim2.new(1, 0, 1, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = titleToShow.name
+	titleLabel.TextColor3 = titleToShow.color
+	titleLabel.TextScaled = true
+	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.TextStrokeTransparency = 0
+	titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	titleLabel.Parent = billboardGui
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats then
+		local titleStat = leaderstats:FindFirstChild("Title")
+		if not titleStat then
+			titleStat = Instance.new("StringValue")
+			titleStat.Name = "Title"
+			titleStat.Parent = leaderstats
+		end
+		titleStat.Value = titleToShow.name
+	end
+end
+
+equipTitleRemote.OnServerEvent:Connect(function(player, titleData)
+	equippedTitles[player] = titleData
+	updatePlayerTitle(player)
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function()
+		wait(1)
+		updatePlayerTitle(player)
+
+		local leaderstats = player:WaitForChild("leaderstats")
+		leaderstats.Speed.Changed:Connect(function() updatePlayerTitle(player) end)
+		leaderstats.Jumps.Changed:Connect(function() updatePlayerTitle(player) end)
+		if leaderstats:FindFirstChild("Rebirths") then
+			leaderstats.Rebirths.Changed:Connect(function() updatePlayerTitle(player) end)
+		end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	equippedTitles[player] = nil
+end)
