@@ -1,0 +1,78 @@
+local Players = game:GetService("Players")
+
+local function formatNumber(num)
+	if num >= 1000000000 then
+		return string.format("%.1fB", num / 1000000000)
+	elseif num >= 1000000 then
+		return string.format("%.1fM", num / 1000000)
+	elseif num >= 1000 then
+		return string.format("%.1fK", num / 1000)
+	else
+		return tostring(num)
+	end
+end
+
+local function updateLeaderboard()
+	local leaderboardPart = workspace:FindFirstChild("LeaderboardPart")
+	if not leaderboardPart then
+		print("LeaderboardPart not found in workspace!")
+		return
+	end
+
+	local surfaceGui = leaderboardPart:FindFirstChild("SurfaceGui")
+	if not surfaceGui then
+		surfaceGui = Instance.new("SurfaceGui")
+		surfaceGui.Name = "SurfaceGui"
+		surfaceGui.Face = Enum.NormalId.Front
+		surfaceGui.Parent = leaderboardPart
+	end
+
+	surfaceGui:ClearAllChildren()
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, 0, 0.1, 0)
+	titleLabel.Position = UDim2.new(0, 0, 0, 0)
+	titleLabel.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+	titleLabel.Text = "🏆 TOP SPEED PLAYERS 🏆"
+	titleLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+	titleLabel.TextScaled = true
+	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.Parent = surfaceGui
+
+	local leaderboardData = {}
+
+	for _, player in pairs(Players:GetPlayers()) do
+		local leaderstats = player:FindFirstChild("leaderstats")
+		if leaderstats then
+			local speed = leaderstats:FindFirstChild("Speed")
+			if speed then
+				table.insert(leaderboardData, {player.Name, speed.Value})
+			end
+		end
+	end
+
+	table.sort(leaderboardData, function(a, b) return a[2] > b[2] end)
+
+	for i = 1, math.min(#leaderboardData, 10) do
+		local entry = leaderboardData[i]
+
+		local entryLabel = Instance.new("TextLabel")
+		entryLabel.Size = UDim2.new(1, 0, 0.09, 0)
+		entryLabel.Position = UDim2.new(0, 0, 0.1 + (i-1) * 0.09, 0)
+		entryLabel.BackgroundColor3 = i % 2 == 0 and Color3.fromRGB(40, 40, 40) or Color3.fromRGB(30, 30, 30)
+		entryLabel.Text = "#" .. i .. "  " .. entry[1] .. " - " .. formatNumber(entry[2])
+		entryLabel.TextColor3 = i <= 3 and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(255, 255, 255)
+		entryLabel.TextScaled = true
+		entryLabel.Font = Enum.Font.GothamBold
+		entryLabel.Parent = surfaceGui
+	end
+end
+
+spawn(function()
+	while wait(10) do
+		updateLeaderboard()
+	end
+end)
+
+wait(5)
+updateLeaderboard()
