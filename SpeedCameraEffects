@@ -6,12 +6,12 @@ local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 local BASE_FOV = 70
-local MAX_FOV = 110
+local MAX_FOV = 73
 local SPEED_START = 18
 local SPEED_FULL = 120
 
 local currentFOVTween
-local shakeConn
+
 
 local function setFOV(target, t)
 	if currentFOVTween then currentFOVTween:Cancel() end
@@ -23,21 +23,7 @@ local function setFOV(target, t)
 	currentFOVTween:Play()
 end
 
-local function stopShake()
-	if shakeConn then
-		shakeConn:Disconnect()
-		shakeConn = nil
-	end
-end
 
-local function startShake(intensity)
-	stopShake()
-	shakeConn = RunService.RenderStepped:Connect(function()
-		local x = (math.random() - 0.5) * intensity
-		local y = (math.random() - 0.5) * intensity
-		camera.CFrame = camera.CFrame * CFrame.new(x, y, 0)
-	end)
-end
 
 RunService.RenderStepped:Connect(function()
 	local char = player.Character
@@ -54,10 +40,6 @@ RunService.RenderStepped:Connect(function()
 		local targetFov = BASE_FOV + (MAX_FOV - BASE_FOV) * alpha
 		setFOV(targetFov, 0.18)
 
-		local shake = 0.02 + (0.22 * alpha)
-		startShake(shake)
-	else
-		setFOV(BASE_FOV, 0.25)
-		stopShake()
+
 	end
 end)
