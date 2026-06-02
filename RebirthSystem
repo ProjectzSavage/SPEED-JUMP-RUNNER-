@@ -10,9 +10,20 @@ local REBIRTH_REQUIREMENTS = {
 
 local rebirthRemote = ReplicatedStorage:WaitForChild("RebirthRequest")
 
-local function updateLeaderstats(player)
+local function expRequiredForLevel(level)
+	return math.floor(100 + (level ^ 1.45) * 35)
+end
+
+local function ensureStats(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then return end
+	if not leaderstats then return nil, nil end
+
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
 
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
 	if not rebirths then
@@ -22,13 +33,55 @@ local function updateLeaderstats(player)
 		rebirths.Parent = leaderstats
 	end
 
-	local multiplier = leaderstats:FindFirstChild("Multiplier")
+	local level = leaderstats:FindFirstChild("Level")
+	if not level then
+		level = Instance.new("IntValue")
+		level.Name = "Level"
+		level.Value = 1
+		level.Parent = leaderstats
+	end
+
+	local speed = leaderstats:FindFirstChild("Speed")
+	if not speed then
+		speed = Instance.new("IntValue")
+		speed.Name = "Speed"
+		speed.Value = 0
+		speed.Parent = leaderstats
+	end
+
+	local jumps = stats:FindFirstChild("Jumps")
+	if not jumps then
+		jumps = Instance.new("IntValue")
+		jumps.Name = "Jumps"
+		jumps.Value = 0
+		jumps.Parent = stats
+	end
+
+	local multiplier = stats:FindFirstChild("Multiplier")
 	if not multiplier then
 		multiplier = Instance.new("IntValue")
 		multiplier.Name = "Multiplier"
 		multiplier.Value = 1
-		multiplier.Parent = leaderstats
+		multiplier.Parent = stats
 	end
+
+	local exp = stats:FindFirstChild("EXP")
+	if not exp then
+		exp = Instance.new("NumberValue")
+		exp.Name = "EXP"
+		exp.Value = 0
+		exp.Parent = stats
+	end
+
+	local expRequired = stats:FindFirstChild("EXPRequired")
+	if not expRequired then
+		expRequired = Instance.new("NumberValue")
+		expRequired.Name = "EXPRequired"
+		expRequired.Value = expRequiredForLevel(level.Value)
+		expRequired.Parent = stats
+	end
+
+	return leaderstats, stats
 end
 
 local function canRebirth(player, rebirthLevel)
@@ -37,50 +90,56 @@ local function canRebirth(player, rebirthLevel)
 
 	local speed = leaderstats:FindFirstChild("Speed")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
-
 	if not speed or not rebirths then return false end
 
-	local requirement = REBIRTH_REQUIREMENTS[rebirthLevel]
-	if not requirement then return false end
+	local req = REBIRTH_REQUIREMENTS[rebirthLevel]
+	if not req then return false end
 
-	return speed.Value >= requirement.speed and rebirths.Value == (rebirthLevel - 1)
+	return speed.Value >= req.speed and rebirths.Value == (rebirthLevel - 1)
 end
 
 local function doRebirth(player, rebirthLevel)
-	print("Attempting rebirth for", player.Name, "level", rebirthLevel)
-
-	if not canRebirth(player, rebirthLevel) then 
-		print("Cannot rebirth - requirements not met")
-		return false 
+	if not canRebirth(player, rebirthLevel) then
+		return false
 	end
 
-	local leaderstats = player:FindFirstChild("leaderstats")
-	local speed = leaderstats:FindFirstChild("Speed")
-	local jumps = leaderstats:FindFirstChild("Jumps")
+	local leaderstats, stats = ensureStats(player)
+	if not leaderstats or not stats then return false end
+
+	local level = leaderstats:FindFirstChild("Level")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
-	local multiplier = leaderstats:FindFirstChild("Multiplier")
 
-	if player.Character and player.Character:FindFirstChild("Humanoid") then
-		player.Character.Humanoid.WalkSpeed = 4
+	local jumps = stats:FindFirstChild("Jumps")
+	local multiplier = stats:FindFirstChild("Multiplier")
+	local exp = stats:FindFirstChild("EXP")
+	local expRequired = stats:FindFirstChild("EXPRequired")
+
+	if not level or not rebirths or not jumps or not multiplier or not exp or not expRequired then
+		return false
 	end
 
-	speed.Value = 4
+	-- Reset progression stats
+	level.Value = 1
+	exp.Value = 0
+	expRequired.Value = expRequiredForLevel(1)
 	jumps.Value = 0
+
+	-- Upgrade rebirth
 	rebirths.Value = rebirthLevel
 	multiplier.Value = REBIRTH_REQUIREMENTS[rebirthLevel].multiplier
 
-	print("Rebirth successful for", player.Name, "- New multiplier:", multiplier.Value)
+	-- Humanoid speed is handled by your ExpProgressionServer applyWalkSpeed
 	return true
 end
 
 rebirthRemote.OnServerEvent:Connect(function(player, rebirthLevel)
-	print("Rebirth remote fired by", player.Name, "for level", rebirthLevel)
 	doRebirth(player, rebirthLevel)
 end)
 
 Players.PlayerAdded:Connect(function(player)
+	ensureStats(player)
 	player.CharacterAdded:Connect(function()
-		wait(1)
-		updateLeaderstats(player)
+		task.wait(0.2)
+		ensureStats(player)
 	end)
 end)
