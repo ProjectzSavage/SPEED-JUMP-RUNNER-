@@ -1,0 +1,249 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local promptBoostRemote = ReplicatedStorage:WaitForChild("PromptExpBoostPurchase")
+local expPopupRemote = ReplicatedStorage:WaitForChild("ExpGainPopup")
+
+local gui = playerGui:WaitForChild("LevelExpGUI")
+local main = gui:WaitForChild("MainFrame")
+
+local expBarFrame = main:WaitForChild("ExpBarFrame")
+local fill = expBarFrame:WaitForChild("BarClip"):WaitForChild("Fill")
+local levelLabel = expBarFrame:WaitForChild("LevelLabel")
+local expLabel = expBarFrame:WaitForChild("ExpLabel")
+
+local boostTopLabel = main:WaitForChild("BoostTopLabel")
+local buyBoostButton = main:WaitForChild("BuyBoostButton")
+local boostText = buyBoostButton:WaitForChild("BoostText")
+local priceText = buyBoostButton:WaitForChild("PriceText")
+
+-- Optional labels to match reference UI (add these to GUI if you want)
+local speedValueLabel = main:FindFirstChild("SpeedValueLabel")
+local leftInfoLabel = main:FindFirstChild("LeftInfoLabel")
+local rightInfoLabel = main:FindFirstChild("RightInfoLabel")
+
+-- World popup template (BillboardGui) in LevelExpGUI
+local worldPopupTemplate = gui:WaitForChild("WorldPopupTemplate")
+local Debris = game:GetService("Debris")
+local levelUpFxRemote = ReplicatedStorage:WaitForChild("LevelUpFX")
+local levelUpTemplate = ReplicatedStorage:WaitForChild("LevelUpFXAttachment")
+
+local function playLevelUpFx(levelUps)
+	local char = player.Character
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local fx = levelUpTemplate:Clone()
+	fx.Parent = root
+	fx.Position = Vector3.new(0, 0, 0)
+
+	for _, obj in ipairs(fx:GetDescendants()) do
+		if obj:IsA("ParticleEmitter") then
+			local emitCount = obj:GetAttribute("EmitCount") or 20
+			obj:Emit(emitCount * math.clamp(levelUps, 1, 5))
+		end
+	end
+
+	Debris:AddItem(fx, 2)
+end
+
+levelUpFxRemote.OnClientEvent:Connect(playLevelUpFx)
+
+local popupSlot = 0
+local popupOffsets = {
+	UDim2.fromScale(0.28, 0.38),
+	UDim2.fromScale(0.72, 0.40),
+	UDim2.fromScale(0.32, 0.58),
+	UDim2.fromScale(0.68, 0.62),
+	UDim2.fromScale(0.40, 0.33),
+	UDim2.fromScale(0.60, 0.67),
+}
+
+local function formatNumber(n)
+	n = tonumber(n) or 0
+	if n >= 1e12 then return string.format("%.2fT", n / 1e12) end
+	if n >= 1e9 then return string.format("%.2fB", n / 1e9) end
+	if n >= 1e6 then return string.format("%.2fM", n / 1e6) end
+	if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
+	return tostring(math.floor(n))
+end
+
+local function getNextBoost(current)
+	if current < 1 then current = 1 end
+	if current >= 128 then return nil end
+	if current == 1 then return 2 end
+	return math.min(current * 2, 128)
+end
+
+local function tweenFill(percent)
+	percent = math.clamp(percent, 0, 1)
+	TweenService:Create(
+		fill,
+		TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Size = UDim2.new(percent, 0, 1, 0) }
+	):Play()
+end
+
+local function updateGui()
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local statsFolder = player:FindFirstChild("Stats")
+	local expBoostValue = player:FindFirstChild("ExpBoost")
+	if not leaderstats or not statsFolder or not expBoostValue then return end
+
+	local level = leaderstats:FindFirstChild("Level")
+	local speed = leaderstats:FindFirstChild("Speed")
+	local rebirths = leaderstats:FindFirstChild("Rebirths")
+
+	local exp = statsFolder:FindFirstChild("EXP")
+	local expRequired = statsFolder:FindFirstChild("EXPRequired")
+	local rebirthMultiplier = statsFolder:FindFirstChild("Multiplier")
+	local rebirthMult = rebirthMultiplier and rebirthMultiplier.Value or 1
+	local boostMult = expBoostValue.Value
+	local totalMult = rebirthMult * boostMult
+
+	if not level or not speed or not rebirths or not exp or not expRequired or not rebirthMultiplier then return end
+
+	levelLabel.Text = "Level: " .. tostring(level.Value)
+	expLabel.Text = "EXP: " .. formatNumber(exp.Value) .. " / " .. formatNumber(expRequired.Value)
+
+	local percent = (expRequired.Value > 0) and (exp.Value / expRequired.Value) or 0
+	tweenFill(percent)
+
+	local currentBoost = expBoostValue.Value
+	boostTopLabel.Text = tostring(totalMult) .. "x TOTAL EXP BOOST"
+
+	local nextBoost = getNextBoost(currentBoost)
+	if nextBoost then
+		buyBoostButton.Active = true
+		buyBoostButton.AutoButtonColor = true
+		boostText.Text = tostring(nextBoost) .. "x EXP"
+		priceText.Text = "ONLY " .. tostring(nextBoost)
+	else
+		buyBoostButton.Active = false
+		buyBoostButton.AutoButtonColor = false
+		boostText.Text = "MAX BOOST"
+		priceText.Text = "128x"
+	end
+
+	-- Optional reference-like labels
+	if speedValueLabel then
+		speedValueLabel.Text = formatNumber(speed.Value) .. " Speed"
+	end
+	if leftInfoLabel then
+		leftInfoLabel.Text = "Multiplier x" .. tostring(currentBoost) .. " (Gamepass)"
+	end
+	if rightInfoLabel then
+		rightInfoLabel.Text = "Multiplier x" .. tostring(rebirthMultiplier.Value) .. " (Rebirth)"
+	end
+end
+
+local function nextPopupOffset()
+	popupSlot = (popupSlot % #popupOffsets) + 1
+	return popupOffsets[popupSlot]
+end
+
+local function randRange(a, b)
+	return a + (b - a) * math.random()
+end
+
+local function showWorldPopup(gainAmount)
+	local char = player.Character
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local popup = worldPopupTemplate:Clone()
+	popup.Enabled = true
+	popup.Adornee = root
+	popup.Parent = playerGui
+
+	local mainFrame = popup:WaitForChild("Main")
+	local amountLabel = mainFrame:WaitForChild("Amount")
+	amountLabel.Text = "+" .. formatNumber(gainAmount)
+
+	mainFrame.Position = UDim2.fromScale(0.5, 0.5)
+	mainFrame.Size = UDim2.fromScale(1, 1)
+	amountLabel.TextTransparency = 0
+	amountLabel.TextStrokeTransparency = 0
+
+	-- fully random spread: left/right/up/down with varied distance
+	local dx = randRange(-0.38, 0.38)
+	local dy = randRange(-0.30, 0.30)
+	local spreadPos = UDim2.fromScale(0.5 + dx, 0.5 + dy)
+
+	local driftX = randRange(-0.08, 0.08)
+	local driftY = randRange(-0.10, 0.10)
+	local driftPos = UDim2.fromScale(0.5 + dx + driftX, 0.5 + dy + driftY)
+
+	local t1 = TweenService:Create(
+		mainFrame,
+		TweenInfo.new(0.13, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Position = spreadPos, Size = UDim2.fromScale(1.05, 1.05) }
+	)
+
+	local t2 = TweenService:Create(
+		mainFrame,
+		TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Position = driftPos, Size = UDim2.fromScale(1.00, 1.00) }
+	)
+
+	local t3 = TweenService:Create(
+		mainFrame,
+		TweenInfo.new(0.30, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.16, 0.16) }
+	)
+
+	local fade = TweenService:Create(
+		amountLabel,
+		TweenInfo.new(0.30, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ TextTransparency = 1, TextStrokeTransparency = 1 }
+	)
+
+	t1:Play()
+	t1.Completed:Connect(function()
+		t2:Play()
+	end)
+	t2.Completed:Connect(function()
+		t3:Play()
+		fade:Play()
+	end)
+	t3.Completed:Connect(function()
+		popup:Destroy()
+	end)
+end
+
+buyBoostButton.MouseButton1Click:Connect(function()
+	local expBoostValue = player:FindFirstChild("ExpBoost")
+	local currentBoost = expBoostValue and expBoostValue.Value or 1
+	local nextBoost = getNextBoost(currentBoost)
+	if nextBoost then
+		promptBoostRemote:FireServer(nextBoost)
+	end
+end)
+
+expPopupRemote.OnClientEvent:Connect(showWorldPopup)
+
+local function hookStats()
+	local leaderstats = player:WaitForChild("leaderstats")
+	local statsFolder = player:WaitForChild("Stats")
+	local expBoostValue = player:WaitForChild("ExpBoost")
+
+	leaderstats:WaitForChild("Level").Changed:Connect(updateGui)
+	leaderstats:WaitForChild("Speed").Changed:Connect(updateGui)
+	leaderstats:WaitForChild("Rebirths").Changed:Connect(updateGui)
+
+	statsFolder:WaitForChild("EXP").Changed:Connect(updateGui)
+	statsFolder:WaitForChild("EXPRequired").Changed:Connect(updateGui)
+	statsFolder:WaitForChild("Multiplier").Changed:Connect(updateGui)
+
+	expBoostValue.Changed:Connect(updateGui)
+
+	updateGui()
+end
+
+hookStats()
