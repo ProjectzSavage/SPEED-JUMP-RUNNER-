@@ -26,64 +26,91 @@ local function getHighestUnlockedTitle(player)
 	if not leaderstats or not stats then return TITLES[1] end
 
 	local speed = leaderstats:FindFirstChild("Speed")
-	local jumps = stats:FindFirstChild("Jumps")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
-	if not speed or not jumps or not rebirths then return TITLES[1] end
+	local jumps = stats:FindFirstChild("Jumps")
+	if not speed or not rebirths or not jumps then return TITLES[1] end
 
-	local highestTitle = TITLES[1]
-	for _, title in ipairs(TITLES) do
-		if speed.Value >= title.speedReq and jumps.Value >= title.jumpReq and rebirths.Value >= title.rebirthReq then
-			highestTitle = title
+	local highest = TITLES[1]
+	for _, t in ipairs(TITLES) do
+		if speed.Value >= t.speedReq and jumps.Value >= t.jumpReq and rebirths.Value >= t.rebirthReq then
+			highest = t
 		end
 	end
-	return highestTitle
+	return highest
 end
 
 local function updatePlayerTitle(player)
-	if not player.Character then return end
-	local head = player.Character:FindFirstChild("Head")
+	local char = player.Character
+	if not char then return end
+	local head = char:FindFirstChild("Head")
 	if not head then return end
 
-	local oldGui = head:FindFirstChild("TitleGui")
-	if oldGui then oldGui:Destroy() end
+	local old = head:FindFirstChild("TitleGui")
+	if old then old:Destroy() end
 
-	local titleToShow = equippedTitles[player] or getHighestUnlockedTitle(player)
+	local chosen = equippedTitles[player]
+	local unlocked = getHighestUnlockedTitle(player)
+	local toShow = chosen or unlocked
 
-	local billboardGui = Instance.new("BillboardGui")
-	billboardGui.Name = "TitleGui"
-	billboardGui.Size = UDim2.new(4, 0, 1, 0)
-	billboardGui.Adornee = head
-	billboardGui.StudsOffset = Vector3.new(0, 2, 0)
-	billboardGui.Parent = head
+	-- If chosen is invalid table, fallback
+	if typeof(toShow) ~= "table" or not toShow.name or not toShow.color then
+		toShow = unlocked
+	end
 
-	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Size = UDim2.new(1, 0, 1, 0)
-	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = titleToShow.name
-	titleLabel.TextColor3 = titleToShow.color
-	titleLabel.TextScaled = true
-	titleLabel.Font = Enum.Font.GothamBold
-	titleLabel.TextStrokeTransparency = 0
-	titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	titleLabel.Parent = billboardGui
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "TitleGui"
+	billboard.Size = UDim2.new(4, 0, 1, 0)
+	billboard.StudsOffset = Vector3.new(0, 2, 0)
+	billboard.Adornee = head
+	billboard.Parent = head
+	billboard.AlwaysOnTop = true
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = toShow.name
+	label.TextColor3 = toShow.color
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.TextStrokeTransparency = 0
+	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	label.Parent = billboard
+	
+	local stats = player:FindFirstChild("Stats")
+	local jumpsValue = stats and stats:FindFirstChild("Jumps")
+	local jumpsText = jumpsValue and jumpsValue.Value or 0
+
+	local jumpsLabel = Instance.new("TextLabel")
+	jumpsLabel.Name = "JumpsLabel"
+	jumpsLabel.Size = UDim2.new(1, 0, 0.55, 0)
+	jumpsLabel.Position = UDim2.new(0, 0, 0.75, 0)
+	jumpsLabel.BackgroundTransparency = 1
+	jumpsLabel.Text = "Jumps: " .. tostring(jumpsText)
+	jumpsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	jumpsLabel.TextScaled = true
+	jumpsLabel.Font = Enum.Font.GothamBold
+	jumpsLabel.TextStrokeTransparency = 0
+	jumpsLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	jumpsLabel.Parent = billboard
 end
 
 equipTitleRemote.OnServerEvent:Connect(function(player, titleData)
+	-- You can keep this permissive; fallback checks in updatePlayerTitle
 	equippedTitles[player] = titleData
 	updatePlayerTitle(player)
 end)
 
 Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function()
-		task.wait(1)
+		task.wait(0.5)
 		updatePlayerTitle(player)
 
 		local leaderstats = player:WaitForChild("leaderstats")
 		local stats = player:WaitForChild("Stats")
 
 		leaderstats:WaitForChild("Speed").Changed:Connect(function() updatePlayerTitle(player) end)
-		stats:WaitForChild("Jumps").Changed:Connect(function() updatePlayerTitle(player) end)
 		leaderstats:WaitForChild("Rebirths").Changed:Connect(function() updatePlayerTitle(player) end)
+		stats:WaitForChild("Jumps").Changed:Connect(function() updatePlayerTitle(player) end)
 	end)
 end)
 
