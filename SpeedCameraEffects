@@ -5,59 +5,59 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
-local baseFOV = 70
-local maxFOV = 110
-local isRunning = false
-local currentFOVTween = nil
-local currentShakeTween = nil
+local BASE_FOV = 70
+local MAX_FOV = 110
+local SPEED_START = 18
+local SPEED_FULL = 120
 
-local function applySpeedEffects(speed)
-	if speed >= 20 and isRunning then
-		local fovMultiplier = math.min((speed - 20) / 100, 1)
-		local targetFOV = baseFOV + (maxFOV - baseFOV) * fovMultiplier
+local currentFOVTween
+local shakeConn
 
-		if currentFOVTween then currentFOVTween:Cancel() end
-		currentFOVTween = TweenService:Create(camera,
-			TweenInfo.new(0.3, Enum.EasingStyle.Quad),
-			{FieldOfView = targetFOV}
-		)
-		currentFOVTween:Play()
+local function setFOV(target, t)
+	if currentFOVTween then currentFOVTween:Cancel() end
+	currentFOVTween = TweenService:Create(
+		camera,
+		TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ FieldOfView = target }
+	)
+	currentFOVTween:Play()
+end
 
-		local shakeIntensity = math.min(speed / 200, 0.5)
-		local function shakeCamera()
-			local randomX = (math.random() - 0.5) * shakeIntensity
-			local randomY = (math.random() - 0.5) * shakeIntensity
-			camera.CFrame = camera.CFrame * CFrame.new(randomX, randomY, 0)
-		end
+local function stopShake()
+	if shakeConn then
+		shakeConn:Disconnect()
+		shakeConn = nil
+	end
+end
 
-		if not currentShakeTween then
-			currentShakeTween = RunService.Heartbeat:Connect(shakeCamera)
-		end
+local function startShake(intensity)
+	stopShake()
+	shakeConn = RunService.RenderStepped:Connect(function()
+		local x = (math.random() - 0.5) * intensity
+		local y = (math.random() - 0.5) * intensity
+		camera.CFrame = camera.CFrame * CFrame.new(x, y, 0)
+	end)
+end
+
+RunService.RenderStepped:Connect(function()
+	local char = player.Character
+	if not char then return end
+
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	local isMoving = hum.MoveDirection.Magnitude > 0.05
+	local realSpeed = hum.WalkSpeed -- real speed, not displayed stat
+
+	if isMoving and realSpeed > SPEED_START then
+		local alpha = math.clamp((realSpeed - SPEED_START) / (SPEED_FULL - SPEED_START), 0, 1)
+		local targetFov = BASE_FOV + (MAX_FOV - BASE_FOV) * alpha
+		setFOV(targetFov, 0.18)
+
+		local shake = 0.02 + (0.22 * alpha)
+		startShake(shake)
 	else
-		if currentFOVTween then currentFOVTween:Cancel() end
-		currentFOVTween = TweenService:Create(camera,
-			TweenInfo.new(0.5, Enum.EasingStyle.Quad),
-			{FieldOfView = baseFOV}
-		)
-		currentFOVTween:Play()
-
-		if currentShakeTween then
-			currentShakeTween:Disconnect()
-			currentShakeTween = nil
-		end
+		setFOV(BASE_FOV, 0.25)
+		stopShake()
 	end
-end
-
-local function checkMovement()
-	if player.Character and player.Character:FindFirstChild("Humanoid") then
-		local humanoid = player.Character.Humanoid
-		isRunning = humanoid.MoveDirection.Magnitude > 0
-
-		local leaderstats = player:FindFirstChild("leaderstats")
-		if leaderstats and leaderstats:FindFirstChild("Speed") then
-			applySpeedEffects(leaderstats.Speed.Value)
-		end
-	end
-end
-
-RunService.Heartbeat:Connect(checkMovement)
+end)
