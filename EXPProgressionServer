@@ -1,0 +1,385 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+local CollectionService = game:GetService("CollectionService")
+
+local function getOrCreateRemote(name)
+	local r = ReplicatedStorage:FindFirstChild(name)
+	if not r then
+		r = Instance.new("RemoteEvent")
+		r.Name = name
+		r.Parent = ReplicatedStorage
+	end
+	return r
+end
+
+local jumpRemote = getOrCreateRemote("JumpDetected")
+local promptBoostRemote = getOrCreateRemote("PromptExpBoostPurchase")
+local expPopupRemote = getOrCreateRemote("ExpGainPopup")
+local surfaceInteractRemote = getOrCreateRemote("SurfaceInteractRequest")
+local levelUpFxRemote = getOrCreateRemote("LevelUpFX")
+
+local PRODUCT_ID_BY_MULTIPLIER = {
+	[2] = 0,
+	[4] = 0,
+	[8] = 0,
+	[16] = 0,
+	[32] = 0,
+	[64] = 0,
+	[128] = 0,
+}
+
+local MULTIPLIER_BY_PRODUCT_ID = {}
+for mult, productId in pairs(PRODUCT_ID_BY_MULTIPLIER) do
+	if productId > 0 then
+		MULTIPLIER_BY_PRODUCT_ID[productId] = mult
+	end
+end
+
+local BASE_WALK_SPEED = 5
+local BASE_EXP_PER_JUMP = 1000
+local MAX_LEVEL = 100
+
+local JUMP_DEBOUNCE = 0.1
+local INTERACT_DISTANCE = 10
+local BUBBLE_BASE_EXP = 6
+local KEY_BASE_EXP = 8
+local SURFACE_EXP_CHANCE = 0.10 -- 10% chance for bubble/key
+local DISPLAY_SPEED_MULTIPLIER = 55
+
+local surfaceCooldown = {}
+local trampolineCooldown = {}
+local playerJumpDebounce = {}
+
+local overlapParams = OverlapParams.new()
+overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+overlapParams.FilterDescendantsInstances = {}
+
+local function ensureValue(parent, className, name, defaultValue)
+	local v = parent:FindFirstChild(name)
+	if not v then
+		v = Instance.new(className)
+		v.Name = name
+		v.Value = defaultValue
+		v.Parent = parent
+	end
+	return v
+end
+
+local function formatExpRequired(level)
+	return math.floor(100 + (level ^ 1.45) * 35)
+end
+
+local function getWalkSpeedFromLevel(level)
+	if level <= 40 then
+		return BASE_WALK_SPEED + (level * 0.95)
+	elseif level <= 120 then
+		return BASE_WALK_SPEED + (40 * 0.95) + ((level - 40) * 0.60)
+	elseif level <= 250 then
+		return BASE_WALK_SPEED + (40 * 0.95) + (80 * 0.60) + ((level - 120) * 0.38)
+	else
+		return BASE_WALK_SPEED + (40 * 0.95) + (80 * 0.60) + (130 * 0.38) + ((level - 250) * 0.22)
+	end
+end
+
+local function getNextBoost(currentBoost)
+	if currentBoost < 1 then currentBoost = 1 end
+	if currentBoost >= 128 then return nil end
+	if currentBoost == 1 then return 2 end
+	return math.min(currentBoost * 2, 128)
+end
+
+local function getPlayerMultipliers(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then return 1, 1 end
+	local rebirthMultiplier = stats:FindFirstChild("Multiplier")
+	local expBoost = player:FindFirstChild("ExpBoost")
+	local rebirthMult = (rebirthMultiplier and rebirthMultiplier.Value) or 1
+	local boostMult = (expBoost and expBoost.Value) or 1
+	return rebirthMult, boostMult
+end
+
+local function applyWalkSpeed(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return end
+
+	local levelValue = leaderstats:FindFirstChild("Level")
+	local speedStat = leaderstats:FindFirstChild("Speed")
+	if not levelValue or not speedStat then return end
+
+	local realSpeed = getWalkSpeedFromLevel(levelValue.Value)
+
+	local character = player.Character
+	if character then
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.WalkSpeed = realSpeed
+		end
+	end
+
+	local displaySpeed = math.floor((realSpeed ^ 1.12) * DISPLAY_SPEED_MULTIPLIER)
+	speedStat.Value = displaySpeed
+end
+
+local function createPlayerStats(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+	end
+
+	-- wipe old unwanted leaderboard values
+	for _, child in ipairs(leaderstats:GetChildren()) do
+		if child.Name ~= "Level" and child.Name ~= "Rebirths" and child.Name ~= "Speed" then
+			child:Destroy()
+		end
+	end
+
+	local level = leaderstats:FindFirstChild("Level") or Instance.new("IntValue")
+	level.Name = "Level"
+	level.Value = level.Value > 0 and level.Value or 1
+	level.Parent = leaderstats
+
+	local rebirths = leaderstats:FindFirstChild("Rebirths") or Instance.new("IntValue")
+	rebirths.Name = "Rebirths"
+	rebirths.Value = rebirths.Value or 0
+	rebirths.Parent = leaderstats
+
+	local speed = leaderstats:FindFirstChild("Speed") or Instance.new("IntValue")
+	speed.Name = "Speed"
+	speed.Value = speed.Value > 0 and speed.Value or 1
+	speed.Parent = leaderstats
+
+	local statsFolder = player:FindFirstChild("Stats") or Instance.new("Folder")
+	statsFolder.Name = "Stats"
+	statsFolder.Parent = player
+
+	local exp = statsFolder:FindFirstChild("EXP") or Instance.new("NumberValue")
+	exp.Name = "EXP"
+	exp.Value = exp.Value or 0
+	exp.Parent = statsFolder
+
+	local expRequired = statsFolder:FindFirstChild("EXPRequired") or Instance.new("NumberValue")
+	expRequired.Name = "EXPRequired"
+	expRequired.Value = expRequired.Value > 0 and expRequired.Value or formatExpRequired(level.Value)
+	expRequired.Parent = statsFolder
+
+	local jumps = statsFolder:FindFirstChild("Jumps") or Instance.new("IntValue")
+	jumps.Name = "Jumps"
+	jumps.Value = jumps.Value or 0
+	jumps.Parent = statsFolder
+
+	local multiplier = statsFolder:FindFirstChild("Multiplier") or Instance.new("IntValue")
+	multiplier.Name = "Multiplier"
+	multiplier.Value = multiplier.Value > 0 and multiplier.Value or 1
+	multiplier.Parent = statsFolder
+
+	local expBoost = player:FindFirstChild("ExpBoost") or Instance.new("NumberValue")
+	expBoost.Name = "ExpBoost"
+	expBoost.Value = expBoost.Value > 0 and expBoost.Value or 1
+	expBoost.Parent = player
+	
+	local allowed = { Level = true, Rebirths = true, Speed = true, Title = true }
+	if not leaderstats:GetAttribute("Guarded") then
+		leaderstats:SetAttribute("Guarded", true)
+		leaderstats.ChildAdded:Connect(function(child)
+			if not allowed[child.Name] then
+				child:Destroy()
+			end
+		end)
+	end
+end
+
+local function addExp(player, amount)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local stats = player:FindFirstChild("Stats")
+	if not leaderstats or not stats then return end
+
+	local level = leaderstats:FindFirstChild("Level")
+	local exp = stats:FindFirstChild("EXP")
+	local expRequired = stats:FindFirstChild("EXPRequired")
+	if not level or not exp or not expRequired then return end
+
+	exp.Value += amount
+	local levelUps = 0
+
+	while exp.Value >= expRequired.Value and level.Value < MAX_LEVEL do
+		exp.Value -= expRequired.Value
+		level.Value += 1
+		expRequired.Value = formatExpRequired(level.Value)
+		levelUps += 1
+	end
+
+	applyWalkSpeed(player)
+
+	if levelUps > 0 then
+		levelUpFxRemote:FireClient(player, levelUps)
+	end
+end
+
+promptBoostRemote.OnServerEvent:Connect(function(player, requestedMultiplier)
+	local expBoost = player:FindFirstChild("ExpBoost")
+	if not expBoost then return end
+
+	local nextBoost = getNextBoost(expBoost.Value)
+	if not nextBoost then return end
+	if requestedMultiplier ~= nextBoost then return end
+
+	local productId = PRODUCT_ID_BY_MULTIPLIER[nextBoost]
+	if not productId or productId <= 0 then
+		warn("Missing product ID for multiplier:", nextBoost)
+		return
+	end
+
+	MarketplaceService:PromptProductPurchase(player, productId)
+end)
+
+MarketplaceService.ProcessReceipt = function(receiptInfo)
+	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local boughtMultiplier = MULTIPLIER_BY_PRODUCT_ID[receiptInfo.ProductId]
+	if not boughtMultiplier then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+
+	local expBoost = player:FindFirstChild("ExpBoost")
+	if expBoost and boughtMultiplier > expBoost.Value then
+		expBoost.Value = boughtMultiplier
+	end
+
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
+jumpRemote.OnServerEvent:Connect(function(player)
+	local now = tick()
+	local last = playerJumpDebounce[player] or 0
+	if now - last < JUMP_DEBOUNCE then return end
+	playerJumpDebounce[player] = now
+
+	local stats = player:FindFirstChild("Stats")
+	local expBoost = player:FindFirstChild("ExpBoost")
+	if not stats or not expBoost then return end
+
+	local jumps = stats:FindFirstChild("Jumps")
+	local rebirthMultiplier = stats:FindFirstChild("Multiplier")
+	if not jumps or not rebirthMultiplier then return end
+
+	jumps.Value += 1
+
+	local gain = BASE_EXP_PER_JUMP * rebirthMultiplier.Value * expBoost.Value
+	addExp(player, gain)
+	expPopupRemote:FireClient(player, gain)
+end)
+
+surfaceInteractRemote.OnServerEvent:Connect(function(player, part, sourceType)
+	if typeof(part) ~= "Instance" or not part:IsA("BasePart") then return end
+	if not part:IsDescendantOf(workspace) then return end
+
+	local character = player.Character
+	if not character then return end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not humanoid or humanoid.Health <= 0 or not root then return end
+
+	local distance = (root.Position - part.Position).Magnitude
+	if distance > INTERACT_DISTANCE then return end
+
+	surfaceCooldown[player] = surfaceCooldown[player] or {}
+	local last = surfaceCooldown[player][part] or 0
+	local now = tick()
+	if now - last < 0.12 then return end
+	surfaceCooldown[player][part] = now
+
+	local baseExp = 0
+	if sourceType == "Bubble" and CollectionService:HasTag(part, "BubblePop") then
+		baseExp = BUBBLE_BASE_EXP
+	elseif sourceType == "Key" and CollectionService:HasTag(part, "KeyboardKey") then
+		baseExp = KEY_BASE_EXP
+	else
+		return
+	end
+
+	-- 10% chance only for bubble/key
+	if math.random() > SURFACE_EXP_CHANCE then
+		return
+	end
+
+	local partMult = part:GetAttribute("ExpMultiplier") or 1
+	local rebirthMult, boostMult = getPlayerMultipliers(player)
+	local gain = baseExp * partMult * rebirthMult * boostMult
+
+	addExp(player, gain)
+	expPopupRemote:FireClient(player, gain)
+end)
+
+task.spawn(function()
+	while true do
+		for _, pad in ipairs(CollectionService:GetTagged("TrampolinePad")) do
+			if pad:IsA("BasePart") and pad.Parent then
+				local expMult = pad:GetAttribute("ExpMultiplier") or 1
+				local tickExp = pad:GetAttribute("TickExp") or 12
+				local tickRate = pad:GetAttribute("TickRate") or 0.45
+				local bouncePower = pad:GetAttribute("BouncePower") or 62
+
+				local parts = workspace:GetPartsInPart(pad, overlapParams)
+				local seenPlayers = {}
+
+				for _, p in ipairs(parts) do
+					local model = p:FindFirstAncestorOfClass("Model")
+					if model then
+						local plr = Players:GetPlayerFromCharacter(model)
+						if plr then
+							seenPlayers[plr] = true
+						end
+					end
+				end
+
+				for plr, _ in pairs(seenPlayers) do
+					trampolineCooldown[plr] = trampolineCooldown[plr] or {}
+					local last = trampolineCooldown[plr][pad] or 0
+					local now = tick()
+
+					if now - last >= tickRate then
+						trampolineCooldown[plr][pad] = now
+
+						local char = plr.Character
+						if char then
+							local hum = char:FindFirstChildOfClass("Humanoid")
+							local root = char:FindFirstChild("HumanoidRootPart")
+							if hum and root and hum.Health > 0 then
+								hum:ChangeState(Enum.HumanoidStateType.Jumping)
+								local vel = root.AssemblyLinearVelocity
+								root.AssemblyLinearVelocity = Vector3.new(vel.X, math.max(vel.Y, bouncePower), vel.Z)
+
+								local rebirthMult, boostMult = getPlayerMultipliers(plr)
+								local gain = tickExp * expMult * rebirthMult * boostMult
+								addExp(plr, gain)
+								expPopupRemote:FireClient(plr, gain)
+							end
+						end
+					end
+				end
+			end
+		end
+		task.wait(0.1)
+	end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	createPlayerStats(player)
+	player.CharacterAdded:Connect(function()
+		task.wait(0.2)
+		applyWalkSpeed(player)
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	playerJumpDebounce[player] = nil
+	surfaceCooldown[player] = nil
+	trampolineCooldown[player] = nil
+end)
