@@ -3,25 +3,24 @@ local CollectionService = game:GetService("CollectionService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+
 local player = Players.LocalPlayer
 local remote = ReplicatedStorage:WaitForChild("SurfaceInteractRequest")
 
 local SPARK_TEXTURE = "rbxassetid://17086390547"
 local BUBBLE_SOUND_ID = "rbxassetid://140323850218372"
-local KEY_SOUND_ID = "rbxassetid://9113420770"
+local KEY_SOUND_ID = "rbxassetid://127105730240202"
 
 local bubbleState = {}
 local keyState = {}
 local keyParts = {}
 local localCooldown = {}
-local KEY_CHECK_INTERVAL = 0.05
-local KEY_RELEASE_GRACE = 0.14
-local KEY_REMOTE_COOLDOWN = 0.18
 
-local keyOverlapParams = OverlapParams.new()
-keyOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
-keyOverlapParams.FilterDescendantsInstances = {}
+local KEY_CHECK_INTERVAL = 0.05
+local KEY_RELEASE_GRACE = 0.36
+local KEY_REMOTE_COOLDOWN = 0.20
+local KEY_BOUNDS_PADDING = Vector3.new(0.25, 0.30, 0.25)
+
 local function isMyCharacterHit(hit)
 	return player.Character and hit and hit:IsDescendantOf(player.Character)
 end
@@ -69,7 +68,7 @@ local function bubbleFx(part)
 	local emitter = Instance.new("ParticleEmitter")
 	emitter.Texture = SPARK_TEXTURE
 	emitter.Rate = 0
-	emitter.Lifetime = NumberRange.new(0.12, 0.22)
+	emitter.Lifetime = NumberRange.new(0.15, 0.28)
 	emitter.Speed = NumberRange.new(10, 18)
 	emitter.SpreadAngle = Vector2.new(360, 360)
 	emitter.Rotation = NumberRange.new(0, 360)
@@ -89,11 +88,10 @@ local function bubbleFx(part)
 	emitter.Parent = att
 	emitter:Emit(34)
 
-	Debris:AddItem(att, 0.45)
+	Debris:AddItem(att, 0.7)
 	play3DSound(part, BUBBLE_SOUND_ID, 1, 6, 70)
 
 	local flatY = math.max(0.05, st.originalSize.Y * 0.16)
-
 	TweenService:Create(
 		part,
 		TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
@@ -125,12 +123,16 @@ local function pressKeyVisual(part)
 	if not st or st.pressed then return end
 	st.pressed = true
 
-	local depth = part:GetAttribute("PressDepth") or 0.66
+	if not st.originalCFrame then
+		st.originalCFrame = part.CFrame
+	end
+
+	local depth = part:GetAttribute("PressDepth") or 1.55
 	local downCf = st.originalCFrame * CFrame.new(0, -depth, 0)
 
 	TweenService:Create(
 		part,
-		TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		TweenInfo.new(0.08, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
 		{ CFrame = downCf }
 	):Play()
 
@@ -141,12 +143,23 @@ local function releaseKeyVisual(part)
 	local st = keyState[part]
 	if not st or not st.pressed then return end
 	st.pressed = false
+	if not st.originalCFrame then return end
 
 	TweenService:Create(
 		part,
-		TweenInfo.new(0.10, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		TweenInfo.new(0.20, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
 		{ CFrame = st.originalCFrame }
 	):Play()
+end
+
+local function isRootOverKey(root, keyPart)
+	-- Use feet sample to avoid flicker near edges.
+	local feetPos = root.Position - Vector3.new(0, 2.5, 0)
+	local localPos = keyPart.CFrame:PointToObjectSpace(feetPos)
+	local half = (keyPart.Size * 0.5) + KEY_BOUNDS_PADDING
+
+	return math.abs(localPos.X) <= half.X
+		and math.abs(localPos.Z) <= half.Z
 end
 
 local function setupBubble(part)
@@ -157,7 +170,6 @@ local function setupBubble(part)
 	part.Touched:Connect(function(hit)
 		if not isMyCharacterHit(hit) then return end
 		if not canFire(part, 0.12) then return end
-
 		bubbleFx(part)
 		remote:FireServer(part, "Bubble")
 	end)
@@ -170,52 +182,60 @@ local function setupKey(part)
 
 	keyState[part] = {
 		pressed = false,
-		originalCFrame = part.CFrame,
-		lastTouchTime = 0,
-		sentAt = 0
+		originalCFrame = nil,
+		lastInsideTime = 0,
+		lastSentTime = 0
 	}
+
 	table.insert(keyParts, part)
+
+	part.AncestryChanged:Connect(function(_, newParent)
+		if newParent == nil then
+			keyState[part] = nil
+			for i, v in ipairs(keyParts) do
+				if v == part then
+					table.remove(keyParts, i)
+					break
+				end
+			end
+		end
+	end)
 end
 
+for _, p in ipairs(CollectionService:GetTagged("BubblePop")) do
+	setupBubble(p)
+end
 for _, p in ipairs(CollectionService:GetTagged("KeyboardKey")) do
 	setupKey(p)
 end
+
+CollectionService:GetInstanceAddedSignal("BubblePop"):Connect(setupBubble)
 CollectionService:GetInstanceAddedSignal("KeyboardKey"):Connect(setupKey)
 
 task.spawn(function()
 	while true do
 		local char = player.Character
-		if char then
-			keyOverlapParams.FilterDescendantsInstances = {}
+		local root = char and char:FindFirstChild("HumanoidRootPart")
 
+		if root then
+			local now = tick()
 			for _, key in ipairs(keyParts) do
 				if key and key.Parent then
 					local st = keyState[key]
 					if st then
-						local touching = false
-						local parts = workspace:GetPartsInPart(key, keyOverlapParams)
-
-						for _, hit in ipairs(parts) do
-							if hit:IsDescendantOf(char) then
-								touching = true
-								break
-							end
-						end
-
-						local now = tick()
-						if touching then
-							st.lastTouchTime = now
+						local inside = isRootOverKey(root, key)
+						if inside then
+							st.lastInsideTime = now
 							if not st.pressed then
 								pressKeyVisual(key)
 							end
 
-							-- send to server throttled while standing on key
-							if now - st.sentAt >= KEY_REMOTE_COOLDOWN then
-								st.sentAt = now
+							if now - st.lastSentTime >= KEY_REMOTE_COOLDOWN then
+								st.lastSentTime = now
 								remote:FireServer(key, "Key")
 							end
 						else
-							if st.pressed and (now - st.lastTouchTime) > KEY_RELEASE_GRACE then
+							if st.pressed and (now - st.lastInsideTime) > KEY_RELEASE_GRACE then
 								releaseKeyVisual(key)
 							end
 						end
@@ -223,18 +243,7 @@ task.spawn(function()
 				end
 			end
 		end
+
 		task.wait(KEY_CHECK_INTERVAL)
 	end
 end)
-
-
-for _, p in ipairs(CollectionService:GetTagged("BubblePop")) do
-	setupBubble(p)
-end
-
-for _, p in ipairs(CollectionService:GetTagged("KeyboardKey")) do
-	setupKey(p)
-end
-
-CollectionService:GetInstanceAddedSignal("BubblePop"):Connect(setupBubble)
-CollectionService:GetInstanceAddedSignal("KeyboardKey"):Connect(setupKey)
