@@ -43,7 +43,7 @@ local SKINS = {
 local equipSkinRemote = ReplicatedStorage:WaitForChild("EquipSkin")
 
 local function checkHierarchy()
-	local skinGUI = playerGui:FindFirstChild("SkinGUI")
+	local skinGUI = playerGui:WaitForChild("SkinGUI")
 	if not skinGUI then
 		warn("SkinGUI ScreenGui not found!")
 		return false
