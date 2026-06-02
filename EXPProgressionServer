@@ -18,16 +18,26 @@ local promptBoostRemote = getOrCreateRemote("PromptExpBoostPurchase")
 local expPopupRemote = getOrCreateRemote("ExpGainPopup")
 local surfaceInteractRemote = getOrCreateRemote("SurfaceInteractRequest")
 local levelUpFxRemote = getOrCreateRemote("LevelUpFX")
+local setSpeedRemote = getOrCreateRemote("SetSpeedRequest")
 
 local PRODUCT_ID_BY_MULTIPLIER = {
-	[2] = 0, [4] = 0, [8] = 0, [16] = 0, [32] = 0, [64] = 0, [128] = 0,
+	[2] = 0,
+	[4] = 0,
+	[8] = 0,
+	[16] = 0,
+	[32] = 0,
+	[64] = 0,
+	[128] = 0,
 }
+
 local MULTIPLIER_BY_PRODUCT_ID = {}
 for mult, productId in pairs(PRODUCT_ID_BY_MULTIPLIER) do
-	if productId > 0 then MULTIPLIER_BY_PRODUCT_ID[productId] = mult end
+	if productId > 0 then
+		MULTIPLIER_BY_PRODUCT_ID[productId] = mult
+	end
 end
 
-local BASE_REAL_SPEED = 16
+local BASE_REAL_SPEED = 5
 local BASE_EXP_PER_JUMP = 100
 local MAX_LEVEL = 100
 
@@ -40,7 +50,7 @@ local SURFACE_EXP_CHANCE = 0.10
 local TRAMPOLINE_TICK_RATE_DEFAULT = 0.45
 local TRAMPOLINE_BOUNCE_DEFAULT = 62
 
--- EXP scaling by speed power
+-- EXP scaling by displayed speed (so stronger players gain more)
 local EXP_SPEED_SCALE = 1000
 local EXP_SPEED_EXPONENT = 0.35
 
@@ -68,7 +78,7 @@ local function formatExpRequired(level)
 end
 
 local function getRealSpeedFromLevel(level)
-	-- Level 6 -> 22 real speed
+	-- Level 6 -> 22
 	return BASE_REAL_SPEED + level
 end
 
@@ -98,10 +108,18 @@ end
 
 local function getSkinSpeedBoost(player)
 	local stats = player:FindFirstChild("Stats")
-	if stats and stats:FindFirstChild("SpeedBoost") then
-		return stats.SpeedBoost.Value
-	end
-	return 0
+	if not stats then return 0 end
+	local sb = stats:FindFirstChild("SpeedBoost")
+	return (sb and sb.Value) or 0
+end
+
+local function getMaxRealSpeed(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return BASE_REAL_SPEED end
+	local level = leaderstats:FindFirstChild("Level")
+	local lvl = (level and level.Value) or 0
+	local skinBoost = getSkinSpeedBoost(player)
+	return getRealSpeedFromLevel(lvl) * (1 + skinBoost)
 end
 
 local function applyWalkSpeed(player)
@@ -113,17 +131,30 @@ local function applyWalkSpeed(player)
 	local speedStat = leaderstats:FindFirstChild("Speed")
 	local exp = stats:FindFirstChild("EXP")
 	local expRequired = stats:FindFirstChild("EXPRequired")
-	if not level or not speedStat or not exp or not expRequired then return end
+	local selectedReal = stats:FindFirstChild("SelectedRealSpeed")
+	local useCustomSpeed = stats:FindFirstChild("UseCustomSpeed")
+	local maxRealStat = stats:FindFirstChild("MaxRealSpeed")
+	if not selectedReal or not useCustomSpeed or not maxRealStat then return end
 
 	local skinBoost = getSkinSpeedBoost(player)
+	local maxReal = getRealSpeedFromLevel(level.Value) * (1 + skinBoost)
+	maxRealStat.Value = maxReal
 
-	local baseReal = getRealSpeedFromLevel(level.Value)
-	local realSpeed = baseReal * (1 + skinBoost)
+	local chosen
+	if useCustomSpeed.Value then
+		chosen = math.clamp(selectedReal.Value, BASE_REAL_SPEED, maxReal)
+		selectedReal.Value = chosen
+	else
+		chosen = maxReal
+	end
+	selectedReal.Value = chosen
 
-	local character = player.Character
-	if character then
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if humanoid then humanoid.WalkSpeed = realSpeed end
+	local char = player.Character
+	if char then
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum.WalkSpeed = chosen
+		end
 	end
 
 	local displayBase = getDisplaySpeedFromProgress(level.Value, exp.Value, expRequired.Value)
@@ -138,14 +169,25 @@ local function createPlayerStats(player)
 		leaderstats.Parent = player
 	end
 
-	local allowed = {Level = true, Rebirths = true, Speed = true, Title = true, CurrentSkin = true}
+	local allowed = {
+		Level = true,
+		Rebirths = true,
+		Speed = true,
+		Wins = true,
+		Title = true,
+		CurrentSkin = true,
+	}
+
 	for _, child in ipairs(leaderstats:GetChildren()) do
-		if not allowed[child.Name] then child:Destroy() end
+		if not allowed[child.Name] then
+			child:Destroy()
+		end
 	end
 
 	ensureValue(leaderstats, "IntValue", "Level", 0)
 	ensureValue(leaderstats, "IntValue", "Rebirths", 0)
 	ensureValue(leaderstats, "IntValue", "Speed", 0)
+	ensureValue(leaderstats, "IntValue", "Wins", 0)
 	ensureValue(leaderstats, "StringValue", "CurrentSkin", "None")
 
 	local stats = player:FindFirstChild("Stats")
@@ -161,21 +203,27 @@ local function createPlayerStats(player)
 	ensureValue(stats, "IntValue", "Jumps", 0)
 	ensureValue(stats, "IntValue", "Multiplier", 1)
 	ensureValue(stats, "NumberValue", "SpeedBoost", 0)
+	ensureValue(stats, "BoolValue", "UseCustomSpeed", false)
+	ensureValue(stats, "NumberValue", "SelectedRealSpeed", 0)
+	ensureValue(stats, "NumberValue", "MaxRealSpeed", BASE_REAL_SPEED)
 
 	ensureValue(player, "NumberValue", "ExpBoost", 1)
 
 	if not leaderstats:GetAttribute("Guarded") then
 		leaderstats:SetAttribute("Guarded", true)
 		leaderstats.ChildAdded:Connect(function(child)
-			if not allowed[child.Name] then child:Destroy() end
+			if not allowed[child.Name] then
+				child:Destroy()
+			end
 		end)
 	end
 end
 
 local function getSpeedExpFactor(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
-	local speedValue = (leaderstats and leaderstats:FindFirstChild("Speed") and leaderstats.Speed.Value) or 0
-	return math.max(1, ((speedValue + EXP_SPEED_SCALE) / EXP_SPEED_SCALE) ^ EXP_SPEED_EXPONENT)
+	local displayedSpeed = (leaderstats and leaderstats:FindFirstChild("Speed") and leaderstats.Speed.Value) or 0
+	local factor = ((displayedSpeed + EXP_SPEED_SCALE) / EXP_SPEED_SCALE) ^ EXP_SPEED_EXPONENT
+	return math.max(1, factor)
 end
 
 local function addExp(player, amount)
@@ -210,7 +258,8 @@ promptBoostRemote.OnServerEvent:Connect(function(player, requestedMultiplier)
 	if not expBoost then return end
 
 	local nextBoost = getNextBoost(expBoost.Value)
-	if not nextBoost or requestedMultiplier ~= nextBoost then return end
+	if not nextBoost then return end
+	if requestedMultiplier ~= nextBoost then return end
 
 	local productId = PRODUCT_ID_BY_MULTIPLIER[nextBoost]
 	if not productId or productId <= 0 then
@@ -223,7 +272,9 @@ end)
 
 MarketplaceService.ProcessReceipt = function(receiptInfo)
 	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
-	if not player then return Enum.ProductPurchaseDecision.NotProcessedYet end
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
 
 	local boughtMultiplier = MULTIPLIER_BY_PRODUCT_ID[receiptInfo.ProductId]
 	if not boughtMultiplier then
@@ -246,6 +297,7 @@ jumpRemote.OnServerEvent:Connect(function(player)
 
 	local stats = player:FindFirstChild("Stats")
 	if not stats then return end
+
 	local jumps = stats:FindFirstChild("Jumps")
 	local rebirthMult, expBoost = getPlayerMultipliers(player)
 	if not jumps then return end
@@ -291,8 +343,8 @@ surfaceInteractRemote.OnServerEvent:Connect(function(player, part, sourceType)
 	local partMult = part:GetAttribute("ExpMultiplier") or 1
 	local rebirthMult, expBoost = getPlayerMultipliers(player)
 	local speedFactor = getSpeedExpFactor(player)
-
 	local gain = baseExp * partMult * rebirthMult * expBoost * speedFactor
+
 	addExp(player, gain)
 	expPopupRemote:FireClient(player, math.floor(gain))
 end)
@@ -325,13 +377,13 @@ task.spawn(function()
 						trampolineCooldown[plr][pad] = now
 
 						local char = plr.Character
-						if char then
+						local stats = plr:FindFirstChild("Stats")
+						if char and stats then
 							local hum = char:FindFirstChildOfClass("Humanoid")
 							local root = char:FindFirstChild("HumanoidRootPart")
-							local stats = plr:FindFirstChild("Stats")
-							if hum and root and stats and hum.Health > 0 then
-								local jumps = stats:FindFirstChild("Jumps")
-								if jumps then jumps.Value += 1 end -- trampoline adds jump stat
+							local jumps = stats:FindFirstChild("Jumps")
+							if hum and root and jumps and hum.Health > 0 then
+								jumps.Value += 1 -- trampoline counts as jump
 
 								hum:ChangeState(Enum.HumanoidStateType.Jumping)
 								local v = root.AssemblyLinearVelocity
@@ -353,6 +405,21 @@ task.spawn(function()
 	end
 end)
 
+setSpeedRemote.OnServerEvent:Connect(function(player, requestedSpeed)
+	if typeof(requestedSpeed) ~= "number" then return end
+	local stats = player:FindFirstChild("Stats")
+	if not stats then return end
+
+	local selected = stats:FindFirstChild("SelectedRealSpeed")
+	local useCustom = stats:FindFirstChild("UseCustomSpeed")
+	if not selected or not useCustom then return end
+
+	local maxReal = getMaxRealSpeed(player)
+	selected.Value = math.clamp(requestedSpeed, BASE_REAL_SPEED, maxReal)
+	useCustom.Value = true
+	applyWalkSpeed(player)
+end)
+
 Players.PlayerAdded:Connect(function(player)
 	createPlayerStats(player)
 
@@ -363,6 +430,7 @@ Players.PlayerAdded:Connect(function(player)
 	stats:WaitForChild("EXP").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("EXPRequired").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("SpeedBoost").Changed:Connect(function() applyWalkSpeed(player) end)
+	stats:WaitForChild("SelectedRealSpeed").Changed:Connect(function() applyWalkSpeed(player) end)
 
 	player.CharacterAdded:Connect(function()
 		task.wait(0.2)
