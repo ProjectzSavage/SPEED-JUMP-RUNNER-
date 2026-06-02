@@ -17,96 +17,50 @@ local TITLES = {
 
 local equipTitleRemote = ReplicatedStorage:WaitForChild("EquipTitle")
 
-local function checkHierarchy()
-	local titleGUI = playerGui:WaitForChild("TitleGUI")
-	local titleGUI = playerGui:FindFirstChild("TitleGUI")
-	if not titleGUI then
-		warn("TitleGUI ScreenGui not found!")
-		return false
-	end
+local titleGUI = playerGui:WaitForChild("TitleGUI")
+local toggleButton = titleGUI:WaitForChild("ToggleButton")
+local mainFrame = titleGUI:WaitForChild("MainFrame")
+local titleList = mainFrame:WaitForChild("TitleList")
+local closeButton = mainFrame:WaitForChild("CloseButton")
 
-	local toggleButton = titleGUI:FindFirstChild("ToggleButton")
-	if not toggleButton then
-		warn("ToggleButton not found in TitleGUI!")
-		return false
-	end
-
-	local mainFrame = titleGUI:FindFirstChild("MainFrame")
-	if not mainFrame then
-		warn("MainFrame not found in TitleGUI!")
-		return false
-	end
-
-	local titleList = mainFrame:FindFirstChild("TitleList")
-	if not titleList then
-		warn("TitleList ScrollingFrame not found in MainFrame!")
-		return false
-	end
-
-	local closeButton = mainFrame:FindFirstChild("CloseButton")
-	if not closeButton then
-		warn("CloseButton not found in MainFrame!")
-		return false
-	end
-
-	local equipFrame = mainFrame:FindFirstChild("EquipFrame")
-	if not equipFrame then
-		warn("EquipFrame not found in MainFrame!")
-		return false
-	end
-
-	local selectedTitleLabel = equipFrame:FindFirstChild("SelectedTitleLabel")
-	if not selectedTitleLabel then
-		warn("SelectedTitleLabel not found in EquipFrame!")
-		return false
-	end
-
-	local equipButton = equipFrame:FindFirstChild("EquipButton")
-	if not equipButton then
-		warn("EquipButton not found in EquipFrame!")
-		return false
-	end
-
-	local cancelButton = equipFrame:FindFirstChild("CancelButton")
-	if not cancelButton then
-		warn("CancelButton not found in EquipFrame!")
-		return false
-	end
-
-	print("All GUI elements found successfully!")
-	return true, titleGUI, toggleButton, mainFrame, titleList, closeButton, equipFrame, selectedTitleLabel, equipButton, cancelButton
-end
-
-wait(2)
-
-local success, titleGUI, toggleButton, mainFrame, titleList, closeButton, equipFrame, selectedTitleLabel, equipButton, cancelButton = checkHierarchy()
-if not success then
-	error("GUI hierarchy is incorrect! Check the console for missing elements.")
-end
-
-local selectedTitle = nil
+local equippedTitleName = "Newbie"
 
 local function isUnlocked(title)
 	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then return false end
+	local statsFolder = player:FindFirstChild("Stats")
+	if not leaderstats or not statsFolder then return false end
 
 	local speed = leaderstats:FindFirstChild("Speed")
-	local jumps = leaderstats:FindFirstChild("Jumps")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
-
-	if not speed or not jumps or not rebirths then return false end
+	local jumps = statsFolder:FindFirstChild("Jumps")
+	if not speed or not rebirths or not jumps then return false end
 
 	return speed.Value >= title.speedReq and jumps.Value >= title.jumpReq and rebirths.Value >= title.rebirthReq
 end
 
-local function updateTitleDisplay()
-	for _, child in pairs(titleList:GetChildren()) do
+local function updateEquippedFromLeaderstats()
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return end
+
+	local titleStat = leaderstats:FindFirstChild("Title")
+	if titleStat and titleStat.Value ~= "" then
+		equippedTitleName = titleStat.Value
+	end
+end
+
+local function clearListFrames()
+	for _, child in ipairs(titleList:GetChildren()) do
 		if child:IsA("Frame") then
 			child:Destroy()
 		end
 	end
+end
 
-	for i, title in pairs(TITLES) do
+local function updateTitleDisplay()
+	updateEquippedFromLeaderstats()
+	clearListFrames()
+
+	for _, title in ipairs(TITLES) do
 		local titleFrame = Instance.new("Frame")
 		titleFrame.Size = UDim2.new(1, 0, 0, 60)
 		titleFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
@@ -137,44 +91,41 @@ local function updateTitleDisplay()
 		local statusButton = Instance.new("TextButton")
 		statusButton.Size = UDim2.new(0.2, 0, 0.8, 0)
 		statusButton.Position = UDim2.new(0.75, 0, 0.1, 0)
-		statusButton.BackgroundColor3 = isUnlocked(title) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-		statusButton.Text = isUnlocked(title) and "EQUIP" or "LOCKED"
 		statusButton.TextScaled = true
 		statusButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 		statusButton.Font = Enum.Font.GothamBold
 		statusButton.Parent = titleFrame
 
-		if isUnlocked(title) then
-			statusButton.MouseButton1Click:Connect(function()
-				selectedTitle = title
-				selectedTitleLabel.Text = title.name
-				selectedTitleLabel.TextColor3 = title.color
-				equipFrame.Visible = true
-			end)
+		local unlocked = isUnlocked(title)
+		local equipped = (title.name == equippedTitleName)
+
+		if not unlocked then
+			statusButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+			statusButton.Text = "LOCKED"
+		elseif equipped then
+			statusButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+			statusButton.Text = "EQUIPPED"
+		else
+			statusButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+			statusButton.Text = "EQUIP"
 		end
+
+		statusButton.MouseButton1Click:Connect(function()
+			if not unlocked then return end
+			if equipped then return end
+
+			equippedTitleName = title.name
+			equipTitleRemote:FireServer(title)
+			updateTitleDisplay()
+		end)
 	end
 
 	titleList.CanvasSize = UDim2.new(0, 0, 0, #TITLES * 65)
 end
 
-equipButton.MouseButton1Click:Connect(function()
-	if selectedTitle then
-		equipTitleRemote:FireServer(selectedTitle)
-		equipFrame.Visible = false
-	end
-end)
-
-cancelButton.MouseButton1Click:Connect(function()
-	equipFrame.Visible = false
-end)
-
 toggleButton.MouseButton1Click:Connect(function()
-	print("Toggle button clicked!")
-	print("MainFrame current visibility:", mainFrame.Visible)
 	mainFrame.Visible = not mainFrame.Visible
-	print("MainFrame new visibility:", mainFrame.Visible)
 	if mainFrame.Visible then
-		print("Updating title display...")
 		updateTitleDisplay()
 	end
 end)
@@ -183,11 +134,25 @@ closeButton.MouseButton1Click:Connect(function()
 	mainFrame.Visible = false
 end)
 
-UserInputService.InputBegan:Connect(function(input)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.R then
 		mainFrame.Visible = not mainFrame.Visible
 		if mainFrame.Visible then
 			updateTitleDisplay()
 		end
+	end
+end)
+
+task.spawn(function()
+	local leaderstats = player:WaitForChild("leaderstats")
+	local titleStat = leaderstats:FindFirstChild("Title")
+	if titleStat then
+		titleStat.Changed:Connect(function()
+			updateEquippedFromLeaderstats()
+			if mainFrame.Visible then
+				updateTitleDisplay()
+			end
+		end)
 	end
 end)
