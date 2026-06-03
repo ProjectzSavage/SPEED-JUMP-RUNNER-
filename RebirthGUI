@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -9,10 +10,9 @@ local REBIRTH_DATA = {
 	[1] = {speed = 100, multiplier = 2},
 	[2] = {speed = 1000, multiplier = 3},
 	[3] = {speed = 5000, multiplier = 4},
-	[4] = {speed = 25000, multiplier = 5}
+	[4] = {speed = 25000, multiplier = 5},
+	[5] = {speed = 50000, multiplier = 6}
 }
-
-wait(2)
 
 local rebirthGUI = playerGui:WaitForChild("RebirthGUI")
 local toggleButton = rebirthGUI:WaitForChild("ToggleButton")
@@ -20,35 +20,40 @@ local mainFrame = rebirthGUI:WaitForChild("MainFrame")
 local currentRebirthFrame = mainFrame:WaitForChild("CurrentRebirthFrame")
 local nextRebirthLabel = currentRebirthFrame:WaitForChild("NextRebirthLabel")
 local requirementLabel = currentRebirthFrame:WaitForChild("RequirementLabel")
-local progressBarFrame = currentRebirthFrame:WaitForChild("ProgressBarFrame")
-local progressBar = progressBarFrame:WaitForChild("ProgressBar")
+local progressBar = currentRebirthFrame:WaitForChild("ProgressBarFrame"):WaitForChild("ProgressBar")
 local rebirthButton = mainFrame:WaitForChild("RebirthButton")
 local rewardsFrame = mainFrame:WaitForChild("RewardsFrame")
 local closeButton = mainFrame:WaitForChild("CloseButton")
 
+local template = rewardsFrame:WaitForChild("RebirthInfoFrame")
+template.Visible = false
+
 local rebirthRemote = ReplicatedStorage:WaitForChild("RebirthRequest")
 
+local animating = false
+local openPos = mainFrame.Position
+local closedPos = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale - 0.18, openPos.Y.Offset)
+
 local function formatNumber(num)
-	if num >= 1000000000 then
-		return string.format("%.1fB", num / 1000000000)
-	elseif num >= 1000000 then
-		return string.format("%.1fM", num / 1000000)
-	elseif num >= 1000 then
-		return string.format("%.1fK", num / 1000)
-	else
-		return tostring(num)
+	if num >= 1e9 then
+		return string.format("%.1fB", num / 1e9)
+	elseif num >= 1e6 then
+		return string.format("%.1fM", num / 1e6)
+	elseif num >= 1e3 then
+		return string.format("%.1fK", num / 1e3)
 	end
+	return tostring(math.floor(num))
 end
 
 local function getNextRebirth()
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return 1 end
 
-	local currentRebirths = leaderstats:FindFirstChild("Rebirths")
-	if not currentRebirths then return 1 end
+	local rebirths = leaderstats:FindFirstChild("Rebirths")
+	if not rebirths then return 1 end
 
-	local nextRebirth = currentRebirths.Value + 1
-	return nextRebirth <= 4 and nextRebirth or nil
+	local nextLevel = rebirths.Value + 1
+	return nextLevel <= 4 and nextLevel or nil
 end
 
 local function canRebirth()
@@ -61,17 +66,15 @@ local function canRebirth()
 	local speed = leaderstats:FindFirstChild("Speed")
 	if not speed then return false end
 
-	local requirement = REBIRTH_DATA[nextRebirth]
-	return speed.Value >= requirement.speed
+	return speed.Value >= REBIRTH_DATA[nextRebirth].speed
 end
 
 local function updateRebirthDisplay()
 	local nextRebirth = getNextRebirth()
 	local leaderstats = player:FindFirstChild("leaderstats")
-
 	if not nextRebirth or not leaderstats then
 		nextRebirthLabel.Text = "MAX REBIRTH REACHED!"
-		requirementLabel.Text = "You've reached the maximum rebirth level"
+		requirementLabel.Text = "You reached max rebirth level"
 		rebirthButton.Text = "MAXED OUT"
 		rebirthButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
 		progressBar.Size = UDim2.new(1, 0, 1, 0)
@@ -81,12 +84,11 @@ local function updateRebirthDisplay()
 	local speed = leaderstats:FindFirstChild("Speed")
 	if not speed then return end
 
-	local data = REBIRTH_DATA[nextRebirth]
-	local progress = math.min(speed.Value / data.speed, 1)
+	local req = REBIRTH_DATA[nextRebirth]
+	local progress = math.min(speed.Value / req.speed, 1)
 
 	nextRebirthLabel.Text = "Next Rebirth: " .. nextRebirth
-	requirementLabel.Text = "Need: " .. formatNumber(data.speed) .. " Speed (" .. formatNumber(speed.Value) .. "/" .. formatNumber(data.speed) .. ")"
-
+	requirementLabel.Text = "Need: " .. formatNumber(req.speed) .. " Speed (" .. formatNumber(speed.Value) .. "/" .. formatNumber(req.speed) .. ")"
 	progressBar.Size = UDim2.new(progress, 0, 1, 0)
 
 	if canRebirth() then
@@ -99,104 +101,140 @@ local function updateRebirthDisplay()
 end
 
 local function updateRewardsDisplay()
-	for _, child in pairs(rewardsFrame:GetChildren()) do
-		if child:IsA("Frame") then
+	local template = rewardsFrame:WaitForChild("RebirthInfoFrame")
+	template.Visible = false
+
+	local listLayout = rewardsFrame:FindFirstChildOfClass("UIListLayout")
+	if not listLayout then
+		listLayout = Instance.new("UIListLayout")
+		listLayout.Padding = UDim.new(0, 2)
+		listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		listLayout.Parent = rewardsFrame
+	end
+
+	-- Remove previous generated rows
+	for _, child in ipairs(rewardsFrame:GetChildren()) do
+		if child:IsA("Frame") and child ~= template and child.Name:match("^RebirthInfoRow_") then
 			child:Destroy()
 		end
 	end
 
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
-
 	local currentRebirths = leaderstats:FindFirstChild("Rebirths")
 	if not currentRebirths then return end
 
-	for i = 1, currentRebirths.Value do
-		local rebirthInfo = Instance.new("Frame")
-		rebirthInfo.Name = "RebirthInfoFrame"
-		rebirthInfo.Size = UDim2.new(1, 0, 0, 50)
-		rebirthInfo.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-		rebirthInfo.Parent = rewardsFrame
+	print("Current rebirths:", currentRebirths.Value)
 
-		local rebirthTitle = Instance.new("TextLabel")
-		rebirthTitle.Name = "RebirthTitle"
-		rebirthTitle.Size = UDim2.new(0.6, 0, 1, 0)
-		rebirthTitle.BackgroundTransparency = 1
-		rebirthTitle.Text = "Rebirth " .. i
-		rebirthTitle.TextScaled = true
-		rebirthTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-		rebirthTitle.Parent = rebirthInfo
+	for rebirthIndex = 1, currentRebirths.Value do
+		local data = REBIRTH_DATA[rebirthIndex]
+		if not data then
+			warn("Missing REBIRTH_DATA for", rebirthIndex)
+			continue
+		end
 
-		local multiplierLabel = Instance.new("TextLabel")
-		multiplierLabel.Name = "MultiplierLabel"
-		multiplierLabel.Size = UDim2.new(0.4, 0, 1, 0)
-		multiplierLabel.Position = UDim2.new(0.6, 0, 0, 0)
-		multiplierLabel.BackgroundTransparency = 1
-		multiplierLabel.Text = REBIRTH_DATA[i].multiplier .. "x"
-		multiplierLabel.TextScaled = true
-		multiplierLabel.TextColor3 = Color3.fromRGB(0, 255, 127)
-		multiplierLabel.Parent = rebirthInfo
+		local row = template:Clone()
+		row.Name = "RebirthInfoRow_" .. rebirthIndex
+		row.Visible = true
+		row.AutomaticSize = Enum.AutomaticSize.None
+		row.Size = UDim2.new(1, 0, 0, 34)
+		row.LayoutOrder = rebirthIndex
+		row.Parent = rewardsFrame
+
+		local rebirthTitle = row:WaitForChild("RebirthTitle")
+		local multiplierLabel = row:WaitForChild("MultiplierLabel")
+
+		rebirthTitle.Text = "Rebirth " .. rebirthIndex
+		multiplierLabel.Text = tostring(data.multiplier) .. "x"
+
+		print("Created row", rebirthIndex, "with", data.multiplier .. "x")
 	end
+
+	if rewardsFrame:IsA("ScrollingFrame") then
+		task.defer(function()
+			rewardsFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 8)
+		end)
+	end
+end
+
+local function openFrame()
+	if animating or mainFrame.Visible then return end
+	animating = true
+	mainFrame.Visible = true
+	mainFrame.Position = closedPos
+
+	local t = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = openPos
+	})
+	t:Play()
+	t.Completed:Wait()
+	animating = false
+end
+
+local function closeFrame()
+	if animating or not mainFrame.Visible then return end
+	animating = true
+
+	local t = TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = closedPos
+	})
+	t:Play()
+	t.Completed:Wait()
+	mainFrame.Visible = false
+	mainFrame.Position = openPos
+	animating = false
 end
 
 rebirthButton.MouseButton1Click:Connect(function()
 	local nextRebirth = getNextRebirth()
 	if nextRebirth and canRebirth() then
 		rebirthRemote:FireServer(nextRebirth)
-		mainFrame.Visible = false
+		closeFrame()
 	end
 end)
 
 toggleButton.MouseButton1Click:Connect(function()
-	print("Rebirth toggle clicked!")
-	print("MainFrame found:", mainFrame)
-	print("MainFrame current visibility:", mainFrame.Visible)
-	mainFrame.Visible = not mainFrame.Visible
-	print("MainFrame new visibility:", mainFrame.Visible)
 	if mainFrame.Visible then
-		print("Updating rebirth display...")
+		closeFrame()
+	else
 		updateRebirthDisplay()
 		updateRewardsDisplay()
+		openFrame()
 	end
 end)
 
-closeButton.MouseButton1Click:Connect(function()
-	mainFrame.Visible = false
+closeButton.MouseButton1Click:Connect(closeFrame)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.B then
+		if mainFrame.Visible then
+			closeFrame()
+		else
+			updateRebirthDisplay()
+			updateRewardsDisplay()
+			openFrame()
+		end
+	end
 end)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.B then
-		mainFrame.Visible = not mainFrame.Visible
+task.spawn(function()
+	while task.wait(1) do
+		if mainFrame.Visible then
+			updateRebirthDisplay()
+		end
+	end
+end)
+
+task.spawn(function()
+	local leaderstats = player:WaitForChild("leaderstats")
+	leaderstats:WaitForChild("Speed").Changed:Connect(function()
+		if mainFrame.Visible then updateRebirthDisplay() end
+	end)
+	leaderstats:WaitForChild("Rebirths").Changed:Connect(function()
 		if mainFrame.Visible then
 			updateRebirthDisplay()
 			updateRewardsDisplay()
 		end
-	end
+	end)
 end)
-
-spawn(function()
-	while wait(1) do
-		if mainFrame.Visible then
-			updateRebirthDisplay()
-		end
-	end
-end)
-
-if player.leaderstats then
-	if player.leaderstats:FindFirstChild("Speed") then
-		player.leaderstats.Speed.Changed:Connect(function()
-			if mainFrame.Visible then
-				updateRebirthDisplay()
-			end
-		end)
-	end
-	if player.leaderstats:FindFirstChild("Rebirths") then
-		player.leaderstats.Rebirths.Changed:Connect(function()
-			if mainFrame.Visible then
-				updateRebirthDisplay()
-				updateRewardsDisplay()
-			end
-		end)
-	end
-end
