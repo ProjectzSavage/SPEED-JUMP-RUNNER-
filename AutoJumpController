@@ -1,0 +1,65 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local gui = playerGui:WaitForChild("LevelExpGUI")
+local main = gui:WaitForChild("MainFrame")
+local autoJumpButton = main:WaitForChild("AutoJumpButton")
+
+local autoJumpEnabled = false
+local JUMP_COOLDOWN = 0.65
+local lastJump = 0
+
+-- ─── JUMP ──────────────────────────────────────────────────────────────────
+
+local function doJump(hum)
+	-- Fire a real jump input event so the engine processes it properly
+	local vr = hum:FindFirstChildOfClass("VRService") -- unused, just guard
+	hum:ChangeState(Enum.HumanoidStateType.Jumping)
+end
+
+-- ─── BUTTON UI ─────────────────────────────────────────────────────────────
+
+local function updateButton()
+	if autoJumpEnabled then
+		autoJumpButton.Text = "AUTO JUMP: ON"
+		autoJumpButton.BackgroundColor3 = Color3.fromRGB(50, 200, 80)
+	else
+		autoJumpButton.Text = "AUTO JUMP: OFF"
+		autoJumpButton.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
+	end
+end
+
+autoJumpButton.MouseButton1Click:Connect(function()
+	autoJumpEnabled = not autoJumpEnabled
+	updateButton()
+end)
+
+-- ─── HEARTBEAT ─────────────────────────────────────────────────────────────
+
+RunService.Heartbeat:Connect(function()
+	if not autoJumpEnabled then return end
+
+	local char = player.Character
+	if not char then return end
+
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then return end
+
+	local now = tick()
+	if now - lastJump < JUMP_COOLDOWN then return end
+
+	local humState = hum:GetState()
+	if humState == Enum.HumanoidStateType.Running
+		or humState == Enum.HumanoidStateType.RunningNoPhysics
+		or humState == Enum.HumanoidStateType.Landed then
+
+		doJump(hum)
+		lastJump = now
+	end
+end)
+
+updateButton()
