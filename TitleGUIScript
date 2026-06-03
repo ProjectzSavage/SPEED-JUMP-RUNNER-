@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -25,23 +26,64 @@ local closeButton = mainFrame:WaitForChild("CloseButton")
 
 local equippedTitleName = "Newbie"
 
+local animating = false
+local openPos = mainFrame.Position
+local closedPos = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale - 0.12, openPos.Y.Offset)
+
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+mainFrame.Visible = false
+mainFrame.Position = openPos
+uiScale.Scale = 1
+
+local function openFrame()
+	if animating then return end
+	animating = true
+	mainFrame.Visible = true
+	mainFrame.Position = closedPos
+	uiScale.Scale = 0.94
+
+	local t1 = TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = openPos})
+	local t2 = TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
+	t1:Play()
+	t2:Play()
+	t1.Completed:Wait()
+	animating = false
+end
+
+local function closeFrame()
+	if animating or not mainFrame.Visible then return end
+	animating = true
+	local t1 = TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = closedPos})
+	local t2 = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.94})
+	t1:Play()
+	t2:Play()
+	t1.Completed:Wait()
+	mainFrame.Visible = false
+	mainFrame.Position = openPos
+	uiScale.Scale = 1
+	animating = false
+end
+
 local function isUnlocked(title)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local statsFolder = player:FindFirstChild("Stats")
 	if not leaderstats or not statsFolder then return false end
-
 	local speed = leaderstats:FindFirstChild("Speed")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
 	local jumps = statsFolder:FindFirstChild("Jumps")
 	if not speed or not rebirths or not jumps then return false end
-
 	return speed.Value >= title.speedReq and jumps.Value >= title.jumpReq and rebirths.Value >= title.rebirthReq
 end
 
 local function updateEquippedFromLeaderstats()
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
-
 	local titleStat = leaderstats:FindFirstChild("Title")
 	if titleStat and titleStat.Value ~= "" then
 		equippedTitleName = titleStat.Value
@@ -50,51 +92,49 @@ end
 
 local function clearListFrames()
 	for _, child in ipairs(titleList:GetChildren()) do
-		if child:IsA("Frame") then
-			child:Destroy()
-		end
+		if child:IsA("Frame") then child:Destroy() end
 	end
 end
 
+local TITLE_MULTIPLIERS = {
+	Newbie = 1.00,
+	Walker = 1.05,
+	Runner = 1.10,
+	Speedster = 1.15,
+	Lightning = 1.25,
+	Sonic = 1.35,
+	Flash = 1.50,
+}
+
+local template = titleList:WaitForChild("TitleRowTemplate")
+template.Visible = false
+
 local function updateTitleDisplay()
 	updateEquippedFromLeaderstats()
-	clearListFrames()
 
-	for _, title in ipairs(TITLES) do
-		local titleFrame = Instance.new("Frame")
-		titleFrame.Size = UDim2.new(1, 0, 0, 60)
-		titleFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-		titleFrame.Parent = titleList
+	for _, child in ipairs(titleList:GetChildren()) do
+		if child:IsA("Frame") and child ~= template then
+			child:Destroy()
+		end
+	end
 
-		local nameLabel = Instance.new("TextLabel")
-		nameLabel.Size = UDim2.new(0.4, 0, 0.7, 0)
-		nameLabel.Position = UDim2.new(0, 5, 0, 0)
-		nameLabel.BackgroundTransparency = 1
+	for i, title in ipairs(TITLES) do
+		local row = template:Clone()
+		row.Name = "TitleRow_" .. i
+		row.Visible = true
+		row.LayoutOrder = i
+		row.Parent = titleList
+
+		local nameLabel = row:WaitForChild("NameLabel")
+		local reqLabel = row:WaitForChild("RequirementsLabel")
+		local multLabel = row:WaitForChild("TitleMultLabel")
+		local statusButton = row:WaitForChild("StatusButton")
+
 		nameLabel.Text = title.name
 		nameLabel.TextColor3 = title.color
-		nameLabel.TextScaled = true
-		nameLabel.Font = Enum.Font.GothamBold
-		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-		nameLabel.Parent = titleFrame
 
-		local reqLabel = Instance.new("TextLabel")
-		reqLabel.Size = UDim2.new(0.4, 0, 0.3, 0)
-		reqLabel.Position = UDim2.new(0, 5, 0.7, 0)
-		reqLabel.BackgroundTransparency = 1
 		reqLabel.Text = title.speedReq .. " Speed, " .. title.jumpReq .. " Jumps, " .. title.rebirthReq .. " Rebirths"
-		reqLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-		reqLabel.TextScaled = true
-		reqLabel.Font = Enum.Font.Gotham
-		reqLabel.TextXAlignment = Enum.TextXAlignment.Left
-		reqLabel.Parent = titleFrame
-
-		local statusButton = Instance.new("TextButton")
-		statusButton.Size = UDim2.new(0.2, 0, 0.8, 0)
-		statusButton.Position = UDim2.new(0.75, 0, 0.1, 0)
-		statusButton.TextScaled = true
-		statusButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-		statusButton.Font = Enum.Font.GothamBold
-		statusButton.Parent = titleFrame
+		multLabel.Text = "Boost x" .. string.format("%.2f", TITLE_MULTIPLIERS[title.name] or 1)
 
 		local unlocked = isUnlocked(title)
 		local equipped = (title.name == equippedTitleName)
@@ -111,35 +151,40 @@ local function updateTitleDisplay()
 		end
 
 		statusButton.MouseButton1Click:Connect(function()
-			if not unlocked then return end
-			if equipped then return end
-
+			if not unlocked or equipped then return end
 			equippedTitleName = title.name
 			equipTitleRemote:FireServer(title)
 			updateTitleDisplay()
 		end)
 	end
 
-	titleList.CanvasSize = UDim2.new(0, 0, 0, #TITLES * 65)
+	local listLayout = titleList:FindFirstChildOfClass("UIListLayout")
+	if titleList:IsA("ScrollingFrame") and listLayout then
+		task.defer(function()
+			titleList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 8)
+		end)
+	end
 end
 
 toggleButton.MouseButton1Click:Connect(function()
-	mainFrame.Visible = not mainFrame.Visible
 	if mainFrame.Visible then
+		closeFrame()
+	else
 		updateTitleDisplay()
+		openFrame()
 	end
 end)
 
-closeButton.MouseButton1Click:Connect(function()
-	mainFrame.Visible = false
-end)
+closeButton.MouseButton1Click:Connect(closeFrame)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.R then
-		mainFrame.Visible = not mainFrame.Visible
 		if mainFrame.Visible then
+			closeFrame()
+		else
 			updateTitleDisplay()
+			openFrame()
 		end
 	end
 end)
@@ -150,9 +195,7 @@ task.spawn(function()
 	if titleStat then
 		titleStat.Changed:Connect(function()
 			updateEquippedFromLeaderstats()
-			if mainFrame.Visible then
-				updateTitleDisplay()
-			end
+			if mainFrame.Visible then updateTitleDisplay() end
 		end)
 	end
 end)
