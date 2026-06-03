@@ -20,6 +20,16 @@ local TITLES = {
 	{name = "Flash", speedReq = 25000, jumpReq = 100000, rebirthReq = 4, color = Color3.fromRGB(255, 0, 0)}
 }
 
+local TITLE_MULTIPLIERS = {
+	Newbie = 1.00,
+	Walker = 1.05,
+	Runner = 1.10,
+	Speedster = 1.15,
+	Lightning = 1.25,
+	Sonic = 1.35,
+	Flash = 1.50,
+}
+
 local function getHighestUnlockedTitle(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local stats = player:FindFirstChild("Stats")
@@ -39,6 +49,19 @@ local function getHighestUnlockedTitle(player)
 	return highest
 end
 
+local function ensureTitleMultiplier(player, titleName)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then return end
+	local titleMult = stats:FindFirstChild("TitleMultiplier")
+	if not titleMult then
+		titleMult = Instance.new("NumberValue")
+		titleMult.Name = "TitleMultiplier"
+		titleMult.Value = 1
+		titleMult.Parent = stats
+	end
+	titleMult.Value = TITLE_MULTIPLIERS[titleName] or 1
+end
+
 local function updatePlayerTitle(player)
 	local char = player.Character
 	if not char then return end
@@ -51,31 +74,42 @@ local function updatePlayerTitle(player)
 	local chosen = equippedTitles[player]
 	local unlocked = getHighestUnlockedTitle(player)
 	local toShow = chosen or unlocked
-
-	-- If chosen is invalid table, fallback
 	if typeof(toShow) ~= "table" or not toShow.name or not toShow.color then
 		toShow = unlocked
 	end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats then
+		local titleStat = leaderstats:FindFirstChild("Title")
+		if not titleStat then
+			titleStat = Instance.new("StringValue")
+			titleStat.Name = "Title"
+			titleStat.Parent = leaderstats
+		end
+		titleStat.Value = toShow.name
+	end
+
+	ensureTitleMultiplier(player, toShow.name)
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "TitleGui"
 	billboard.Size = UDim2.new(4, 0, 1, 0)
 	billboard.StudsOffset = Vector3.new(0, 2, 0)
 	billboard.Adornee = head
-	billboard.Parent = head
 	billboard.AlwaysOnTop = true
+	billboard.Parent = head
 
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, 0, 1, 0)
-	label.BackgroundTransparency = 1
-	label.Text = toShow.name
-	label.TextColor3 = toShow.color
-	label.TextScaled = true
-	label.Font = Enum.Font.GothamBold
-	label.TextStrokeTransparency = 0
-	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	label.Parent = billboard
-	
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, 0, 1, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = toShow.name
+	titleLabel.TextColor3 = toShow.color
+	titleLabel.TextScaled = true
+	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.TextStrokeTransparency = 0
+	titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	titleLabel.Parent = billboard
+
 	local stats = player:FindFirstChild("Stats")
 	local jumpsValue = stats and stats:FindFirstChild("Jumps")
 	local jumpsText = jumpsValue and jumpsValue.Value or 0
@@ -95,7 +129,6 @@ local function updatePlayerTitle(player)
 end
 
 equipTitleRemote.OnServerEvent:Connect(function(player, titleData)
-	-- You can keep this permissive; fallback checks in updatePlayerTitle
 	equippedTitles[player] = titleData
 	updatePlayerTitle(player)
 end)
