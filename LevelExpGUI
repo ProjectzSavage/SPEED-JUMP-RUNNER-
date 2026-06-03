@@ -307,10 +307,7 @@ local function updateGui()
 	local statsFolder = player:FindFirstChild("Stats")
 	local expBoostValue = player:FindFirstChild("ExpBoost")
 	if not leaderstats or not statsFolder or not expBoostValue then return end
-	local maxRealStat = statsFolder:FindFirstChild("MaxRealSpeed")
-	if maxRealStat and speedCapLabel then
-		speedCapLabel.Text = "Max: " .. string.format("%.1f", maxRealStat.Value)
-	end
+
 	local level = leaderstats:FindFirstChild("Level")
 	local speed = leaderstats:FindFirstChild("Speed")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
@@ -320,7 +317,13 @@ local function updateGui()
 	local expRequired = statsFolder:FindFirstChild("EXPRequired")
 	local rebirthMultiplier = statsFolder:FindFirstChild("Multiplier")
 	local speedBoostStat = statsFolder:FindFirstChild("SpeedBoost")
-
+	local maxRealStat = statsFolder:FindFirstChild("MaxRealSpeed")
+	local titleMultLabel = main:FindFirstChild("TitleMultLabel")
+	local titleMult = statsFolder:FindFirstChild("TitleMultiplier")
+	local titleBoost = (titleMult and titleMult.Value) or 1
+	if titleMultLabel and titleMult then
+		titleMultLabel.Text = "Multiplier x" .. string.format("%.2f", titleMult.Value) .. " (Title)"
+	end
 	if not level or not speed or not rebirths or not exp or not expRequired or not rebirthMultiplier then return end
 
 	levelLabel.Text = "Level: " .. tostring(level.Value)
@@ -331,10 +334,10 @@ local function updateGui()
 
 	local gamepassBoost = expBoostValue.Value
 	local rebirthBoost = rebirthMultiplier.Value
-	local totalBoost = gamepassBoost * rebirthBoost
+	local totalBoost = gamepassBoost * rebirthBoost * titleBoost
 	local skinBoostPercent = math.floor((((speedBoostStat and speedBoostStat.Value) or 0) * 100) + 0.5)
 
-	boostTopLabel.Text = tostring(totalBoost) .. "x TOTAL EXP BOOST"
+	boostTopLabel.Text = string.format("%.2fx TOTAL EXP BOOST", totalBoost)
 
 	local nextBoost = getNextBoost(gamepassBoost)
 	if nextBoost then
@@ -352,9 +355,11 @@ local function updateGui()
 	if speedValueLabel then
 		animateSpeedLabel(speed.Value)
 	end
+
 	if wins and winsValueLabel then
 		winsValueLabel.Text = formatNumber(wins.Value) .. " Wins"
 	end
+
 	if leftInfoLabel then
 		leftInfoLabel.Text = "Multiplier x" .. tostring(gamepassBoost) .. " (Gamepass)"
 	end
@@ -371,9 +376,10 @@ local function updateGui()
 		skinBoostLabel.Text = "+" .. tostring(skinBoostPercent) .. "% Speed (Skin)"
 	end
 
-	local skinBoost = (speedBoostStat and speedBoostStat.Value) or 0
-	local maxReal = maxRealStat(level.Value, skinBoost)
-	speedCapLabel.Text = "Max: " .. string.format("%.1f", maxReal)
+	-- Use server-provided max real speed value
+	if maxRealStat and speedCapLabel then
+		speedCapLabel.Text = "Max: " .. string.format("%.1f", maxRealStat.Value)
+	end
 end
 
 local function submitChosenSpeed()
