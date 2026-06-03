@@ -1,16 +1,17 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local equipSkinRemote = ReplicatedStorage:WaitForChild("EquipSkin")
 
 local SKINS = {
-	{name = "Flash", speedReq = 1000, rebirthReq = 1, speedBoost = 0.05, description = "+5% Speed Boost", color = Color3.fromRGB(255, 0, 0)},
-	{name = "Speedster", speedReq = 5000, rebirthReq = 2, speedBoost = 0.10, description = "+10% Speed Boost", color = Color3.fromRGB(0, 150, 255)},
-	{name = "Velocity", speedReq = 10000, rebirthReq = 3, speedBoost = 0.15, description = "+15% Speed Boost", color = Color3.fromRGB(255, 215, 0)},
-	{name = "Hypersonic", speedReq = 25000, rebirthReq = 4, speedBoost = 0.20, description = "+20% Speed Boost", color = Color3.fromRGB(138, 43, 226)},
+	{name = "Flash", speedReq = 1000, rebirthReq = 1, speedBoost = 0.05, description = "+1.05% Speed Boost", color = Color3.fromRGB(255, 0, 0)},
+	{name = "Speedster", speedReq = 5000, rebirthReq = 2, speedBoost = 0.10, description = "+1.10% Speed Boost", color = Color3.fromRGB(0, 150, 255)},
+	{name = "Velocity", speedReq = 10000, rebirthReq = 3, speedBoost = 0.15, description = "+1.15% Speed Boost", color = Color3.fromRGB(255, 215, 0)},
+	{name = "Hypersonic", speedReq = 25000, rebirthReq = 4, speedBoost = 0.20, description = "+1.20% Speed Boost", color = Color3.fromRGB(138, 43, 226)},
 }
 
 local skinGUI = playerGui:WaitForChild("SkinGUI")
@@ -18,16 +19,62 @@ local toggleButton = skinGUI:WaitForChild("ToggleButton")
 local mainFrame = skinGUI:WaitForChild("MainFrame")
 local skinList = mainFrame:WaitForChild("SkinList")
 local closeButton = mainFrame:WaitForChild("CloseButton")
+local template = skinList:WaitForChild("SkinRowTemplate")
+template.Visible = false
 
 local equippedSkinName = "None"
 
+local animating = false
+local openPos = mainFrame.Position
+local closedPos = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale - 0.12, openPos.Y.Offset)
+
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+mainFrame.Visible = false
+
+local function openFrame()
+	if animating then return end
+	animating = true
+	mainFrame.Visible = true
+	mainFrame.Position = closedPos
+	uiScale.Scale = 0.94
+
+	local t1 = TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = openPos})
+	local t2 = TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
+	t1:Play()
+	t2:Play()
+	t1.Completed:Wait()
+	animating = false
+end
+
+local function closeFrame()
+	if animating or not mainFrame.Visible then return end
+	animating = true
+
+	local t1 = TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = closedPos})
+	local t2 = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.94})
+	t1:Play()
+	t2:Play()
+	t1.Completed:Wait()
+
+	mainFrame.Visible = false
+	mainFrame.Position = openPos
+	uiScale.Scale = 1
+	animating = false
+end
+
 local function formatNumber(num)
-	if num >= 1000000000 then
-		return string.format("%.1fB", num / 1000000000)
-	elseif num >= 1000000 then
-		return string.format("%.1fM", num / 1000000)
-	elseif num >= 1000 then
-		return string.format("%.1fK", num / 1000)
+	if num >= 1e9 then
+		return string.format("%.1fB", num / 1e9)
+	elseif num >= 1e6 then
+		return string.format("%.1fM", num / 1e6)
+	elseif num >= 1e3 then
+		return string.format("%.1fK", num / 1e3)
 	end
 	return tostring(math.floor(num))
 end
@@ -53,9 +100,9 @@ local function isUnlocked(skin)
 	return speed.Value >= skin.speedReq and rebirths.Value >= skin.rebirthReq
 end
 
-local function clearList()
+local function clearRows()
 	for _, child in ipairs(skinList:GetChildren()) do
-		if child:IsA("Frame") then
+		if child:IsA("Frame") and child ~= template then
 			child:Destroy()
 		end
 	end
@@ -63,54 +110,26 @@ end
 
 local function updateSkinDisplay()
 	equippedSkinName = getCurrentSkinName()
-	clearList()
+	clearRows()
 
-	for _, skin in ipairs(SKINS) do
-		local skinFrame = Instance.new("Frame")
-		skinFrame.Size = UDim2.new(1, 0, 0, 80)
-		skinFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-		skinFrame.Parent = skinList
+	for i, skin in ipairs(SKINS) do
+		local row = template:Clone()
+		row.Name = "SkinRow_" .. i
+		row.Visible = true
+		row.LayoutOrder = i
+		row.Parent = skinList
 
-		local nameLabel = Instance.new("TextLabel")
-		nameLabel.Size = UDim2.new(0.3, 0, 0.5, 0)
-		nameLabel.Position = UDim2.new(0, 5, 0, 0)
-		nameLabel.BackgroundTransparency = 1
+		local nameLabel = row:WaitForChild("NameLabel")
+		local descriptionLabel = row:WaitForChild("DescriptionLabel")
+		local reqLabel = row:WaitForChild("RequirementsLabel")
+		local boostLabel = row:WaitForChild("SkinBoostLabel")
+		local statusButton = row:WaitForChild("StatusButton")
+
 		nameLabel.Text = skin.name
 		nameLabel.TextColor3 = skin.color
-		nameLabel.TextScaled = true
-		nameLabel.Font = Enum.Font.GothamBold
-		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-		nameLabel.Parent = skinFrame
-
-		local descLabel = Instance.new("TextLabel")
-		descLabel.Size = UDim2.new(0.42, 0, 0.3, 0)
-		descLabel.Position = UDim2.new(0, 5, 0.5, 0)
-		descLabel.BackgroundTransparency = 1
-		descLabel.Text = skin.description
-		descLabel.TextColor3 = Color3.fromRGB(0, 255, 127)
-		descLabel.TextScaled = true
-		descLabel.Font = Enum.Font.Gotham
-		descLabel.TextXAlignment = Enum.TextXAlignment.Left
-		descLabel.Parent = skinFrame
-
-		local reqLabel = Instance.new("TextLabel")
-		reqLabel.Size = UDim2.new(0.42, 0, 0.2, 0)
-		reqLabel.Position = UDim2.new(0, 5, 0.8, 0)
-		reqLabel.BackgroundTransparency = 1
+		descriptionLabel.Text = skin.description
 		reqLabel.Text = formatNumber(skin.speedReq) .. " Speed, " .. skin.rebirthReq .. " Rebirths"
-		reqLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-		reqLabel.TextScaled = true
-		reqLabel.Font = Enum.Font.Gotham
-		reqLabel.TextXAlignment = Enum.TextXAlignment.Left
-		reqLabel.Parent = skinFrame
-
-		local statusButton = Instance.new("TextButton")
-		statusButton.Size = UDim2.new(0.22, 0, 0.6, 0)
-		statusButton.Position = UDim2.new(0.74, 0, 0.2, 0)
-		statusButton.TextScaled = true
-		statusButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-		statusButton.Font = Enum.Font.GothamBold
-		statusButton.Parent = skinFrame
+		boostLabel.Text = "+" .. tostring(math.floor(skin.speedBoost * 100 + 0.5)) .. "% Speed"
 
 		local unlocked = isUnlocked(skin)
 		local equipped = (equippedSkinName == skin.name)
@@ -127,87 +146,50 @@ local function updateSkinDisplay()
 		end
 
 		statusButton.MouseButton1Click:Connect(function()
-			if not unlocked then return end
-			if equipped then return end
-
+			if not unlocked or equipped then return end
 			equippedSkinName = skin.name
 			equipSkinRemote:FireServer(skin.name)
 			updateSkinDisplay()
 		end)
 	end
-
-	local removeFrame = Instance.new("Frame")
-	removeFrame.Size = UDim2.new(1, 0, 0, 60)
-	removeFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-	removeFrame.Parent = skinList
-
-	local removeLabel = Instance.new("TextLabel")
-	removeLabel.Size = UDim2.new(0.6, 0, 1, 0)
-	removeLabel.Position = UDim2.new(0, 5, 0, 0)
-	removeLabel.BackgroundTransparency = 1
-	removeLabel.Text = "Remove Current Skin"
-	removeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	removeLabel.TextScaled = true
-	removeLabel.Font = Enum.Font.GothamBold
-	removeLabel.TextXAlignment = Enum.TextXAlignment.Left
-	removeLabel.Parent = removeFrame
-
-	local removeButton = Instance.new("TextButton")
-	removeButton.Size = UDim2.new(0.22, 0, 0.8, 0)
-	removeButton.Position = UDim2.new(0.74, 0, 0.1, 0)
-	removeButton.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
-	removeButton.Text = "REMOVE"
-	removeButton.TextScaled = true
-	removeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-	removeButton.Font = Enum.Font.GothamBold
-	removeButton.Parent = removeFrame
-
-	removeButton.MouseButton1Click:Connect(function()
-		equippedSkinName = "None"
-		equipSkinRemote:FireServer(nil)
-		updateSkinDisplay()
-	end)
-
-	skinList.CanvasSize = UDim2.new(0, 0, 0, (#SKINS + 1) * 85)
 end
 
 toggleButton.MouseButton1Click:Connect(function()
-	mainFrame.Visible = not mainFrame.Visible
 	if mainFrame.Visible then
+		closeFrame()
+	else
 		updateSkinDisplay()
+		openFrame()
 	end
 end)
 
-closeButton.MouseButton1Click:Connect(function()
-	mainFrame.Visible = false
-end)
+closeButton.MouseButton1Click:Connect(closeFrame)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
 	if input.KeyCode == Enum.KeyCode.K then
-		mainFrame.Visible = not mainFrame.Visible
 		if mainFrame.Visible then
+			closeFrame()
+		else
 			updateSkinDisplay()
+			openFrame()
 		end
 	end
 end)
 
 task.spawn(function()
 	local leaderstats = player:WaitForChild("leaderstats")
-	local currentSkin = leaderstats:FindFirstChild("CurrentSkin")
-	if currentSkin then
-		currentSkin.Changed:Connect(function()
-			equippedSkinName = currentSkin.Value
-			if mainFrame.Visible then
-				updateSkinDisplay()
-			end
-		end)
-	end
-
 	leaderstats:WaitForChild("Speed").Changed:Connect(function()
 		if mainFrame.Visible then updateSkinDisplay() end
 	end)
 	leaderstats:WaitForChild("Rebirths").Changed:Connect(function()
 		if mainFrame.Visible then updateSkinDisplay() end
 	end)
+
+	local currentSkin = leaderstats:FindFirstChild("CurrentSkin")
+	if currentSkin then
+		currentSkin.Changed:Connect(function()
+			if mainFrame.Visible then updateSkinDisplay() end
+		end)
+	end
 end)
