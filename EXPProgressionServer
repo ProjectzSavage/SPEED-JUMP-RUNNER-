@@ -21,15 +21,8 @@ local levelUpFxRemote = getOrCreateRemote("LevelUpFX")
 local setSpeedRemote = getOrCreateRemote("SetSpeedRequest")
 
 local PRODUCT_ID_BY_MULTIPLIER = {
-	[2] = 0,
-	[4] = 0,
-	[8] = 0,
-	[16] = 0,
-	[32] = 0,
-	[64] = 0,
-	[128] = 0,
+	[2] = 0, [4] = 0, [8] = 0, [16] = 0, [32] = 0, [64] = 0, [128] = 0,
 }
-
 local MULTIPLIER_BY_PRODUCT_ID = {}
 for mult, productId in pairs(PRODUCT_ID_BY_MULTIPLIER) do
 	if productId > 0 then
@@ -39,8 +32,8 @@ end
 
 local BASE_REAL_SPEED = 5
 local BASE_EXP_PER_JUMP = 100
-local MAX_LEVEL = 100
-
+local MAX_LEVEL = 1000
+local MAX_REAL_SPEED_CAP = 140
 local JUMP_DEBOUNCE = 0.1
 local INTERACT_DISTANCE = 10
 local BUBBLE_BASE_EXP = 6
@@ -50,13 +43,14 @@ local SURFACE_EXP_CHANCE = 0.10
 local TRAMPOLINE_TICK_RATE_DEFAULT = 0.45
 local TRAMPOLINE_BOUNCE_DEFAULT = 62
 
--- EXP scaling by displayed speed (so stronger players gain more)
 local EXP_SPEED_SCALE = 1000
 local EXP_SPEED_EXPONENT = 0.35
 
 local playerJumpDebounce = {}
 local surfaceCooldown = {}
 local trampolineCooldown = {}
+local winTouchCounts = {}
+local winCooldown = {}
 
 local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -78,7 +72,6 @@ local function formatExpRequired(level)
 end
 
 local function getRealSpeedFromLevel(level)
-	-- Level 6 -> 22
 	return BASE_REAL_SPEED + level
 end
 
@@ -87,7 +80,6 @@ local function getDisplaySpeedFromProgress(level, exp, expRequired)
 	if expRequired > 0 then
 		progress = progress + (exp / expRequired)
 	end
-	-- Level 6 -> 675
 	return math.floor(18.75 * progress * progress)
 end
 
@@ -100,17 +92,28 @@ end
 
 local function getPlayerMultipliers(player)
 	local stats = player:FindFirstChild("Stats")
-	if not stats then return 1, 1 end
+	if not stats then return 1, 1, 1 end
+
 	local rebirthMult = (stats:FindFirstChild("Multiplier") and stats.Multiplier.Value) or 1
-	local expBoost = (player:FindFirstChild("ExpBoost") and player.ExpBoost.Value) or 1
-	return rebirthMult, expBoost
+	local gamepassExpMult = (player:FindFirstChild("ExpBoost") and player.ExpBoost.Value) or 1
+	local titleMult = (stats:FindFirstChild("TitleMultiplier") and stats.TitleMultiplier.Value) or 1
+
+	return rebirthMult, gamepassExpMult, titleMult
 end
 
 local function getSkinSpeedBoost(player)
+	-- Supports both new and old skin scripts
 	local stats = player:FindFirstChild("Stats")
-	if not stats then return 0 end
-	local sb = stats:FindFirstChild("SpeedBoost")
-	return (sb and sb.Value) or 0
+	if stats and stats:FindFirstChild("SpeedBoost") then
+		return stats.SpeedBoost.Value
+	end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats and leaderstats:FindFirstChild("SpeedBoost") then
+		return leaderstats.SpeedBoost.Value
+	end
+
+	return 0
 end
 
 local function getMaxRealSpeed(player)
@@ -119,7 +122,8 @@ local function getMaxRealSpeed(player)
 	local level = leaderstats:FindFirstChild("Level")
 	local lvl = (level and level.Value) or 0
 	local skinBoost = getSkinSpeedBoost(player)
-	return getRealSpeedFromLevel(lvl) * (1 + skinBoost)
+	local rawMax = getRealSpeedFromLevel(lvl) * (1 + skinBoost)
+	return math.clamp(rawMax, BASE_REAL_SPEED, MAX_REAL_SPEED_CAP)
 end
 
 local function applyWalkSpeed(player)
@@ -134,10 +138,10 @@ local function applyWalkSpeed(player)
 	local selectedReal = stats:FindFirstChild("SelectedRealSpeed")
 	local useCustomSpeed = stats:FindFirstChild("UseCustomSpeed")
 	local maxRealStat = stats:FindFirstChild("MaxRealSpeed")
-	if not selectedReal or not useCustomSpeed or not maxRealStat then return end
+	if not level or not speedStat or not exp or not expRequired or not selectedReal or not useCustomSpeed or not maxRealStat then return end
 
 	local skinBoost = getSkinSpeedBoost(player)
-	local maxReal = getRealSpeedFromLevel(level.Value) * (1 + skinBoost)
+	local maxReal = getMaxRealSpeed(player)
 	maxRealStat.Value = maxReal
 
 	local chosen
@@ -146,15 +150,13 @@ local function applyWalkSpeed(player)
 		selectedReal.Value = chosen
 	else
 		chosen = maxReal
+		selectedReal.Value = chosen
 	end
-	selectedReal.Value = chosen
 
 	local char = player.Character
 	if char then
 		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then
-			hum.WalkSpeed = chosen
-		end
+		if hum then hum.WalkSpeed = chosen end
 	end
 
 	local displayBase = getDisplaySpeedFromProgress(level.Value, exp.Value, expRequired.Value)
@@ -170,14 +172,8 @@ local function createPlayerStats(player)
 	end
 
 	local allowed = {
-		Level = true,
-		Rebirths = true,
-		Speed = true,
-		Wins = true,
-		Title = true,
-		CurrentSkin = true,
+		Level = true, Rebirths = true, Speed = true, Wins = true, Title = true, CurrentSkin = true
 	}
-
 	for _, child in ipairs(leaderstats:GetChildren()) do
 		if not allowed[child.Name] then
 			child:Destroy()
@@ -189,6 +185,7 @@ local function createPlayerStats(player)
 	ensureValue(leaderstats, "IntValue", "Speed", 0)
 	ensureValue(leaderstats, "IntValue", "Wins", 0)
 	ensureValue(leaderstats, "StringValue", "CurrentSkin", "None")
+	ensureValue(leaderstats, "StringValue", "Title", "Newbie")
 
 	local stats = player:FindFirstChild("Stats")
 	if not stats then
@@ -203,6 +200,7 @@ local function createPlayerStats(player)
 	ensureValue(stats, "IntValue", "Jumps", 0)
 	ensureValue(stats, "IntValue", "Multiplier", 1)
 	ensureValue(stats, "NumberValue", "SpeedBoost", 0)
+	ensureValue(stats, "NumberValue", "TitleMultiplier", 1)
 	ensureValue(stats, "BoolValue", "UseCustomSpeed", false)
 	ensureValue(stats, "NumberValue", "SelectedRealSpeed", 0)
 	ensureValue(stats, "NumberValue", "MaxRealSpeed", BASE_REAL_SPEED)
@@ -247,7 +245,6 @@ local function addExp(player, amount)
 	end
 
 	applyWalkSpeed(player)
-
 	if levelUps > 0 then
 		levelUpFxRemote:FireClient(player, levelUps)
 	end
@@ -258,8 +255,7 @@ promptBoostRemote.OnServerEvent:Connect(function(player, requestedMultiplier)
 	if not expBoost then return end
 
 	local nextBoost = getNextBoost(expBoost.Value)
-	if not nextBoost then return end
-	if requestedMultiplier ~= nextBoost then return end
+	if not nextBoost or requestedMultiplier ~= nextBoost then return end
 
 	local productId = PRODUCT_ID_BY_MULTIPLIER[nextBoost]
 	if not productId or productId <= 0 then
@@ -272,9 +268,7 @@ end)
 
 MarketplaceService.ProcessReceipt = function(receiptInfo)
 	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
-	if not player then
-		return Enum.ProductPurchaseDecision.NotProcessedYet
-	end
+	if not player then return Enum.ProductPurchaseDecision.NotProcessedYet end
 
 	local boughtMultiplier = MULTIPLIER_BY_PRODUCT_ID[receiptInfo.ProductId]
 	if not boughtMultiplier then
@@ -297,15 +291,14 @@ jumpRemote.OnServerEvent:Connect(function(player)
 
 	local stats = player:FindFirstChild("Stats")
 	if not stats then return end
-
 	local jumps = stats:FindFirstChild("Jumps")
-	local rebirthMult, expBoost = getPlayerMultipliers(player)
 	if not jumps then return end
 
 	jumps.Value += 1
 
+	local rebirthMult, gamepassExpMult, titleMult = getPlayerMultipliers(player)
 	local speedFactor = getSpeedExpFactor(player)
-	local gain = BASE_EXP_PER_JUMP * rebirthMult * expBoost * speedFactor
+	local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * speedFactor
 
 	addExp(player, gain)
 	expPopupRemote:FireClient(player, math.floor(gain))
@@ -320,7 +313,6 @@ surfaceInteractRemote.OnServerEvent:Connect(function(player, part, sourceType)
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	local root = char:FindFirstChild("HumanoidRootPart")
 	if not hum or hum.Health <= 0 or not root then return end
-
 	if (root.Position - part.Position).Magnitude > INTERACT_DISTANCE then return end
 
 	surfaceCooldown[player] = surfaceCooldown[player] or {}
@@ -341,9 +333,9 @@ surfaceInteractRemote.OnServerEvent:Connect(function(player, part, sourceType)
 	if math.random() > SURFACE_EXP_CHANCE then return end
 
 	local partMult = part:GetAttribute("ExpMultiplier") or 1
-	local rebirthMult, expBoost = getPlayerMultipliers(player)
+	local rebirthMult, gamepassExpMult, titleMult = getPlayerMultipliers(player)
 	local speedFactor = getSpeedExpFactor(player)
-	local gain = baseExp * partMult * rebirthMult * expBoost * speedFactor
+	local gain = baseExp * partMult * rebirthMult * gamepassExpMult * titleMult * speedFactor
 
 	addExp(player, gain)
 	expPopupRemote:FireClient(player, math.floor(gain))
@@ -372,7 +364,6 @@ task.spawn(function()
 					trampolineCooldown[plr] = trampolineCooldown[plr] or {}
 					local last = trampolineCooldown[plr][pad] or 0
 					local now = tick()
-
 					if now - last >= tickRate then
 						trampolineCooldown[plr][pad] = now
 
@@ -383,15 +374,14 @@ task.spawn(function()
 							local root = char:FindFirstChild("HumanoidRootPart")
 							local jumps = stats:FindFirstChild("Jumps")
 							if hum and root and jumps and hum.Health > 0 then
-								jumps.Value += 1 -- trampoline counts as jump
-
+								jumps.Value += 1
 								hum:ChangeState(Enum.HumanoidStateType.Jumping)
 								local v = root.AssemblyLinearVelocity
 								root.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, bouncePower), v.Z)
 
-								local rebirthMult, expBoost = getPlayerMultipliers(plr)
+								local rebirthMult, gamepassExpMult, titleMult = getPlayerMultipliers(plr)
 								local speedFactor = getSpeedExpFactor(plr)
-								local gain = BASE_EXP_PER_JUMP * rebirthMult * expBoost * speedFactor * expMult
+								local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * speedFactor * expMult
 
 								addExp(plr, gain)
 								expPopupRemote:FireClient(plr, math.floor(gain))
@@ -420,6 +410,86 @@ setSpeedRemote.OnServerEvent:Connect(function(player, requestedSpeed)
 	applyWalkSpeed(player)
 end)
 
+local function getSpawnPart()
+	local model = workspace:FindFirstChild("SpawnPoint")
+	if not model then return nil end
+	local p = model:FindFirstChild("SpawnLocation")
+	if p and p:IsA("BasePart") then return p end
+	return nil
+end
+
+local function teleportPlayerToSpawn(player)
+	local char = player.Character
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	local spawnPart = getSpawnPart()
+	if not root or not spawnPart then return end
+	root.CFrame = spawnPart.CFrame + Vector3.new(0, 4, 0)
+end
+
+local function setupWinPart(part)
+	if not part:IsA("BasePart") then return end
+	if part:GetAttribute("WinConnected") then return end
+	part:SetAttribute("WinConnected", true)
+
+	winTouchCounts[part] = {}
+
+	part.Touched:Connect(function(hit)
+		local char = hit.Parent
+		if not char then return end
+		local player = Players:GetPlayerFromCharacter(char)
+		if not player then return end
+
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then return end
+
+		local counts = winTouchCounts[part]
+		local current = counts[player] or 0
+		counts[player] = current + 1
+		if current > 0 then return end
+
+		local winsAmount = math.max(1, math.floor(part:GetAttribute("WinsAmount") or 1))
+		local cooldownSec = part:GetAttribute("WinsCooldown") or 0.5
+
+		winCooldown[player] = winCooldown[player] or {}
+		local last = winCooldown[player][part] or 0
+		local now = tick()
+		if now - last < cooldownSec then return end
+		winCooldown[player][part] = now
+
+		local leaderstats = player:FindFirstChild("leaderstats")
+		local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+		if wins then wins.Value += winsAmount end
+
+		if part:GetAttribute("TeleportToSpawn") == true then
+			teleportPlayerToSpawn(player)
+		end
+	end)
+
+	part.TouchEnded:Connect(function(hit)
+		local char = hit.Parent
+		if not char then return end
+		local player = Players:GetPlayerFromCharacter(char)
+		if not player then return end
+
+		local counts = winTouchCounts[part]
+		if not counts then return end
+
+		local current = counts[player] or 0
+		current -= 1
+		if current <= 0 then
+			counts[player] = nil
+		else
+			counts[player] = current
+		end
+	end)
+end
+
+for _, part in ipairs(CollectionService:GetTagged("WinPart")) do
+	setupWinPart(part)
+end
+CollectionService:GetInstanceAddedSignal("WinPart"):Connect(setupWinPart)
+
 Players.PlayerAdded:Connect(function(player)
 	createPlayerStats(player)
 
@@ -431,6 +501,7 @@ Players.PlayerAdded:Connect(function(player)
 	stats:WaitForChild("EXPRequired").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("SpeedBoost").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("SelectedRealSpeed").Changed:Connect(function() applyWalkSpeed(player) end)
+	stats:WaitForChild("TitleMultiplier").Changed:Connect(function() applyWalkSpeed(player) end)
 
 	player.CharacterAdded:Connect(function()
 		task.wait(0.2)
@@ -442,4 +513,5 @@ Players.PlayerRemoving:Connect(function(player)
 	playerJumpDebounce[player] = nil
 	surfaceCooldown[player] = nil
 	trampolineCooldown[player] = nil
+	winCooldown[player] = nil
 end)
