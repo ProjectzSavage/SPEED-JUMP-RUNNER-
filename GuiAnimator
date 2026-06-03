@@ -1,0 +1,263 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ─── CONFIG ────────────────────────────────────────────────────────────────
+
+local CLOSE_OTHERS = true
+
+local OPEN_SOUND_ID  = "rbxassetid://6026984224"
+local CLOSE_SOUND_ID = "rbxassetid://6026984224"
+
+-- Tween configs
+local OPEN_POS_TWEEN   = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local CLOSE_POS_TWEEN  = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+local OPEN_SCALE_TWEEN = TweenInfo.new(0.40, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out)
+local CLOSE_SCALE_TWEEN= TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local FADE_OPEN_TWEEN  = TweenInfo.new(0.20, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local FADE_CLOSE_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+--[[
+    guiMap format:
+    ["GuiName"] = {
+        closeOthers = true,  -- override global CLOSE_OTHERS per GUI (optional)
+    }
+--]]
+local guiMap = {
+	-- RebirthGUI = {},
+	-- SkinGUI    = { closeOthers = false },
+	-- TitleGUI   = {},
+}
+
+-- ─── STATE ─────────────────────────────────────────────────────────────────
+
+local frames = {}  -- [guiName] = frame
+local state  = {}  -- [frame]   = { ... }
+
+-- ─── UTILITIES ─────────────────────────────────────────────────────────────
+
+local function makeSound(id, parent)
+	local s = Instance.new("Sound")
+	s.SoundId = id
+	s.Volume = 0.35
+	s.RollOffMode = Enum.RollOffMode.NoAttenuation
+	s.Parent = parent
+	return s
+end
+
+local function getOrMakeUIScale(frame)
+	local scale = frame:FindFirstChildOfClass("UIScale")
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Scale = 1
+		scale.Parent = frame
+	end
+	return scale
+end
+
+local function getOrMakeCanvasGroup(frame)
+	-- Wrap in CanvasGroup for smooth fade (if not already)
+	local parent = frame.Parent
+	local cg = parent:FindFirstChild("__CG_" .. frame.Name)
+	if cg and cg:IsA("CanvasGroup") then return cg end
+
+	cg = Instance.new("CanvasGroup")
+	cg.Name = "__CG_" .. frame.Name
+	cg.Size = frame.Size
+	cg.Position = frame.Position
+	cg.AnchorPoint = frame.AnchorPoint
+	cg.BackgroundTransparency = 1
+	cg.ZIndex = frame.ZIndex
+	cg.Parent = parent
+
+	frame.Parent = cg
+	frame.Position = UDim2.new(0, 0, 0, 0)
+	frame.AnchorPoint = Vector2.new(0, 0)
+	frame.Size = UDim2.new(1, 0, 1, 0)
+
+	return cg
+end
+
+-- ─── STATE INIT ────────────────────────────────────────────────────────────
+
+local function ensureState(frame)
+	if state[frame] then return state[frame] end
+
+	local scale = getOrMakeUIScale(frame)
+
+	local openPos = frame.Parent and frame.Parent:IsA("CanvasGroup")
+		and UDim2.new(0, 0, 0, 0)
+		or frame.Position
+
+	local st = {
+		open      = openPos,
+		closed    = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale + 0.07, openPos.Y.Offset),
+		animating = false,
+		scale     = scale,
+		openSnd   = makeSound(OPEN_SOUND_ID,  frame),
+		closeSnd  = makeSound(CLOSE_SOUND_ID, frame),
+	}
+
+	state[frame] = st
+	return st
+end
+
+-- ─── ANIMATION CORE ────────────────────────────────────────────────────────
+
+local function openFrame(frame, cg)
+	local st = ensureState(frame)
+	if st.animating or frame.Visible then return end
+	st.animating = true
+
+	-- Reset starting state
+	frame.Position  = st.closed
+	st.scale.Scale  = 0.92
+	frame.Visible   = true
+	if cg then cg.GroupTransparency = 1 end
+
+	-- Slide up + elastic scale pop + fade in
+	TweenService:Create(frame,    OPEN_POS_TWEEN,   { Position = st.open }):Play()
+	TweenService:Create(st.scale, OPEN_SCALE_TWEEN, { Scale    = 1       }):Play()
+	if cg then
+		TweenService:Create(cg, FADE_OPEN_TWEEN, { GroupTransparency = 0 }):Play()
+	end
+
+	st.openSnd:Play()
+
+	task.delay(OPEN_POS_TWEEN.Time, function()
+		st.animating = false
+	end)
+end
+
+local function closeFrame(frame, cg)
+	local st = ensureState(frame)
+	if st.animating or not frame.Visible then return end
+	st.animating = true
+
+	-- Slide down + shrink + fade out simultaneously
+	TweenService:Create(frame,    CLOSE_POS_TWEEN,   { Position = st.closed }):Play()
+	TweenService:Create(st.scale, CLOSE_SCALE_TWEEN, { Scale    = 0.92      }):Play()
+
+	local fadeTween = cg and TweenService:Create(cg, FADE_CLOSE_TWEEN, { GroupTransparency = 1 })
+	if fadeTween then fadeTween:Play() end
+
+	st.closeSnd:Play()
+
+	task.delay(CLOSE_POS_TWEEN.Time, function()
+		frame.Visible  = false
+		frame.Position = st.open
+		st.scale.Scale = 1
+		if cg then cg.GroupTransparency = 0 end
+		st.animating   = false
+	end)
+end
+
+local function closeAllExcept(exceptFrame, canvasGroups)
+	for _, f in pairs(frames) do
+		if f ~= exceptFrame and f.Visible then
+			closeFrame(f, canvasGroups[f])
+		end
+	end
+end
+
+local function toggleFrame(frame, cg, cfg)
+	if frame.Visible then
+		closeFrame(frame, cg)
+	else
+		if CLOSE_OTHERS and (cfg == nil or cfg.closeOthers ~= false) then
+			-- canvasGroups passed as upvalue below
+		end
+		openFrame(frame, cg)
+	end
+end
+
+-- ─── BUTTON HOVER EFFECT ───────────────────────────────────────────────────
+
+local function addHoverEffect(button)
+	local scale = button:FindFirstChildOfClass("UIScale")
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Scale = 1
+		scale.Parent = button
+	end
+
+	local hoverIn  = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local hoverOut = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	button.MouseEnter:Connect(function()
+		TweenService:Create(scale, hoverIn, { Scale = 1.08 }):Play()
+	end)
+	button.MouseLeave:Connect(function()
+		TweenService:Create(scale, hoverOut, { Scale = 1 }):Play()
+	end)
+	button.MouseButton1Down:Connect(function()
+		TweenService:Create(scale, hoverIn, { Scale = 0.95 }):Play()
+	end)
+	button.MouseButton1Up:Connect(function()
+		TweenService:Create(scale, hoverOut, { Scale = 1.08 }):Play()
+	end)
+end
+
+-- ─── SETUP ─────────────────────────────────────────────────────────────────
+
+local canvasGroups = {}  -- [frame] = CanvasGroup
+
+for guiName, cfg in pairs(guiMap) do
+	local gui = playerGui:FindFirstChild(guiName)
+	if not gui then
+		warn("[GUIManager] GUI not found:", guiName)
+		continue
+	end
+
+	local frame        = gui:FindFirstChild("MainFrame")
+	local toggleButton = gui:FindFirstChild("ToggleButton")
+	local closeButton  = frame and frame:FindFirstChild("CloseButton")
+
+	if not frame then
+		warn("[GUIManager] MainFrame missing in:", guiName)
+		continue
+	end
+
+	-- Wrap in CanvasGroup for fade support
+	local cg = getOrMakeCanvasGroup(frame)
+	canvasGroups[frame] = cg
+
+	frames[guiName] = frame
+	ensureState(frame)
+
+	-- Ensure frame starts closed
+	frame.Visible = false
+
+	if toggleButton then
+		addHoverEffect(toggleButton)
+		toggleButton.MouseButton1Click:Connect(function()
+			if frame.Visible then
+				closeFrame(frame, cg)
+			else
+				if CLOSE_OTHERS and (cfg == nil or cfg.closeOthers ~= false) then
+					closeAllExcept(frame, canvasGroups)
+				end
+				openFrame(frame, cg)
+			end
+		end)
+	end
+
+	if closeButton then
+		addHoverEffect(closeButton)
+		closeButton.MouseButton1Click:Connect(function()
+			closeFrame(frame, cg)
+		end)
+	end
+
+	-- Also wire any other ImageButton/TextButton inside the frame named "CloseButton"
+	for _, btn in ipairs(frame:GetDescendants()) do
+		if btn.Name == "CloseButton" and (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn ~= closeButton then
+			addHoverEffect(btn)
+			btn.MouseButton1Click:Connect(function()
+				closeFrame(frame, cg)
+			end)
+		end
+	end
+end
