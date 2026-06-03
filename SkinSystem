@@ -87,9 +87,28 @@ local function saveOriginalAvatar(player)
 		originalAvatars[player] = desc
 	end
 end
+local function getSpeedBoostValue(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
 
+	local speedBoost = stats:FindFirstChild("SpeedBoost")
+	if not speedBoost then
+		speedBoost = Instance.new("NumberValue")
+		speedBoost.Name = "SpeedBoost"
+		speedBoost.Value = 0
+		speedBoost.Parent = stats
+	end
+
+	return speedBoost
+end
 local function applySkin(player, skinName)
 	local skin = SKINS[skinName]
+	local speedBoost = getSpeedBoostValue(player)
+	speedBoost.Value = skin.speedBoost
 	if not skin then return end
 	if not player.Character then return end
 
@@ -148,7 +167,7 @@ local function removeSkin(player)
 		end
 	end
 
-	local currentSkin, speedBoost = ensureSkinStats(player)
+	local currentSkin, speedBoost = getSpeedBoostValue(player)
 	if currentSkin then currentSkin.Value = "None" end
 	if speedBoost then speedBoost.Value = 0 end
 end
