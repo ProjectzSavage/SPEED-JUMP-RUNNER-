@@ -1,0 +1,9 @@
+return {
+	Wins = "rbxassetid://112121771476233",
+	Rebirth = "rbxassetid://82472836128481",
+	Title = "rbxassetid://100840156926790",
+	Skin = "rbxassetid://102265642846661",
+	Purchase = "rbxassetid://119203946171271",
+	CustomSpeed = "rbxassetid://82244280862617",
+	StepMultiplier = "rbxassetid://123229086075236",
+}
