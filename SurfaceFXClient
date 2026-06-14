@@ -9,7 +9,7 @@ local remote = ReplicatedStorage:WaitForChild("SurfaceInteractRequest")
 
 local SPARK_TEXTURE = "rbxassetid://17086390547"
 local BUBBLE_SOUND_ID = "rbxassetid://140323850218372"
-local KEY_SOUND_ID = "rbxassetid://127105730240202"
+local KEY_SOUND_ID = "rbxassetid://125615721658437"
 
 local bubbleState = {}
 local keyState = {}
