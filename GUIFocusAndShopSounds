@@ -1,0 +1,197 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local MarketplaceService = game:GetService("MarketplaceService")
+local SoundService = game:GetService("SoundService")
+local ContentProvider = game:GetService("ContentProvider")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local camera = workspace.CurrentCamera
+
+local DEFAULT_FOV = camera and camera.FieldOfView or 70
+local FOCUSED_FOV = 58
+local BLUR_SIZE = 16
+
+local ROBUX_CLICK_SOUND_ID = "rbxassetid://6895079853"
+local PURCHASE_SUCCESS_SOUND_ID = "rbxassetid://135308045"
+
+local FOV_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local BLUR_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local trackedGuiFrames = {
+	{ guiName = "SkinGUI", frameName = "MainFrame" },
+	{ guiName = "TitleGUI", frameName = "MainFrame" },
+	{ guiName = "RebirthGUI", frameName = "MainFrame" },
+	{ guiName = "SpeedShopGUI", frameName = "ShopFrame" },
+}
+
+local blur = Lighting:FindFirstChild("GuiFocusBlur")
+if not blur then
+	blur = Instance.new("BlurEffect")
+	blur.Name = "GuiFocusBlur"
+	blur.Size = 0
+	blur.Enabled = true
+	blur.Parent = Lighting
+end
+
+local preloadedPools = {}
+
+local function buildSoundPool(key, soundId, volume, count)
+	local pool = {}
+	for i = 1, count do
+		local sound = Instance.new("Sound")
+		sound.Name = key .. "_" .. i
+		sound.SoundId = soundId
+		sound.Volume = volume
+		sound.Parent = SoundService
+		table.insert(pool, sound)
+	end
+	ContentProvider:PreloadAsync(pool)
+	preloadedPools[key] = pool
+end
+
+buildSoundPool("RobuxClick", ROBUX_CLICK_SOUND_ID, 0.8, 4)
+buildSoundPool("PurchaseSuccess", PURCHASE_SUCCESS_SOUND_ID, 1, 3)
+
+local function playPooledSound(key)
+	local pool = preloadedPools[key]
+	if not pool then return end
+
+	for _, sound in ipairs(pool) do
+		if not sound.IsPlaying then
+			sound.TimePosition = 0
+			sound:Play()
+			return
+		end
+	end
+
+	local first = pool[1]
+	if first then
+		first:Stop()
+		first.TimePosition = 0
+		first:Play()
+	end
+end
+
+local function tweenFocusEffects(active)
+	camera = workspace.CurrentCamera or camera
+	if camera then
+		TweenService:Create(camera, FOV_TWEEN_INFO, {
+			FieldOfView = active and FOCUSED_FOV or DEFAULT_FOV,
+		}):Play()
+	end
+
+	TweenService:Create(blur, BLUR_TWEEN_INFO, {
+		Size = active and BLUR_SIZE or 0,
+	}):Play()
+end
+
+local function anyTrackedGuiOpen()
+	for _, info in ipairs(trackedGuiFrames) do
+		local gui = playerGui:FindFirstChild(info.guiName)
+		local frame = gui and gui:FindFirstChild(info.frameName)
+		if frame and frame.Visible then
+			return true
+		end
+	end
+	return false
+end
+
+local function refreshFocusState()
+	tweenFocusEffects(anyTrackedGuiOpen())
+end
+
+local function connectVisibleWatcher(guiName, frameName)
+	local gui = playerGui:FindFirstChild(guiName)
+	if not gui then return end
+	local frame = gui:FindFirstChild(frameName)
+	if not frame then return end
+
+	frame:GetPropertyChangedSignal("Visible"):Connect(refreshFocusState)
+end
+
+for _, info in ipairs(trackedGuiFrames) do
+	connectVisibleWatcher(info.guiName, info.frameName)
+end
+
+playerGui.ChildAdded:Connect(function(child)
+	for _, info in ipairs(trackedGuiFrames) do
+		if child.Name == info.guiName then
+			task.defer(function()
+				connectVisibleWatcher(info.guiName, info.frameName)
+				refreshFocusState()
+			end)
+			break
+		end
+	end
+end)
+
+local connectedButtons = {}
+
+local function isRobuxButton(button)
+	if button:GetAttribute("RobuxButton") == true then
+		return true
+	end
+
+	local name = string.lower(button.Name)
+	return name:find("offer")
+		or name:find("product")
+		or name:find("robux")
+		or name:find("buy")
+end
+
+local function tryConnectRobuxButton(button)
+	if connectedButtons[button] then return end
+	if not (button:IsA("TextButton") or button:IsA("ImageButton")) then return end
+	if not isRobuxButton(button) then return end
+
+	connectedButtons[button] = true
+	button.MouseButton1Click:Connect(function()
+		playPooledSound("RobuxClick")
+	end)
+end
+
+local function scanGui(gui)
+	for _, obj in ipairs(gui:GetDescendants()) do
+		tryConnectRobuxButton(obj)
+	end
+
+	gui.DescendantAdded:Connect(tryConnectRobuxButton)
+end
+
+for _, gui in ipairs(playerGui:GetChildren()) do
+	if gui:IsA("ScreenGui") then
+		scanGui(gui)
+	end
+end
+
+playerGui.ChildAdded:Connect(function(gui)
+	if gui:IsA("ScreenGui") then
+		task.defer(function()
+			scanGui(gui)
+		end)
+	end
+end)
+
+MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, isPurchased)
+	if userId == player.UserId and isPurchased then
+		playPooledSound("PurchaseSuccess")
+	end
+end)
+
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(p, gamePassId, wasPurchased)
+	if p == player and wasPurchased then
+		playPooledSound("PurchaseSuccess")
+	end
+end)
+
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	camera = workspace.CurrentCamera
+	if camera and not anyTrackedGuiOpen() then
+		DEFAULT_FOV = camera.FieldOfView
+	end
+	refreshFocusState()
+end)
+
+refreshFocusState()
