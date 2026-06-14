@@ -8,16 +8,24 @@ if not equipTitleRemote then
 	equipTitleRemote.Parent = ReplicatedStorage
 end
 
+local showNotificationRemote = ReplicatedStorage:FindFirstChild("ShowNotification")
+if not showNotificationRemote then
+	showNotificationRemote = Instance.new("RemoteEvent")
+	showNotificationRemote.Name = "ShowNotification"
+	showNotificationRemote.Parent = ReplicatedStorage
+end
+
 local equippedTitles = {}
+local highestUnlockedIndexByPlayer = {}
 
 local TITLES = {
-	{name = "Newbie", speedReq = 0, jumpReq = 0, rebirthReq = 0, color = Color3.fromRGB(255, 255, 255)},
-	{name = "Walker", speedReq = 50, jumpReq = 10, rebirthReq = 0, color = Color3.fromRGB(0, 255, 0)},
-	{name = "Runner", speedReq = 100, jumpReq = 500, rebirthReq = 1, color = Color3.fromRGB(0, 150, 255)},
-	{name = "Speedster", speedReq = 500, jumpReq = 2000, rebirthReq = 1, color = Color3.fromRGB(255, 165, 0)},
-	{name = "Lightning", speedReq = 1000, jumpReq = 5000, rebirthReq = 2, color = Color3.fromRGB(255, 215, 0)},
-	{name = "Sonic", speedReq = 5000, jumpReq = 20000, rebirthReq = 3, color = Color3.fromRGB(255, 0, 255)},
-	{name = "Flash", speedReq = 25000, jumpReq = 100000, rebirthReq = 4, color = Color3.fromRGB(255, 0, 0)}
+	{ name = "Newbie", speedReq = 0, jumpReq = 0, rebirthReq = 0, color = Color3.fromRGB(255, 255, 255) },
+	{ name = "Walker", speedReq = 50, jumpReq = 10, rebirthReq = 0, color = Color3.fromRGB(0, 255, 0) },
+	{ name = "Runner", speedReq = 100, jumpReq = 500, rebirthReq = 1, color = Color3.fromRGB(0, 150, 255) },
+	{ name = "Speedster", speedReq = 500, jumpReq = 2000, rebirthReq = 1, color = Color3.fromRGB(255, 165, 0) },
+	{ name = "Lightning", speedReq = 1000, jumpReq = 5000, rebirthReq = 2, color = Color3.fromRGB(255, 215, 0) },
+	{ name = "Sonic", speedReq = 5000, jumpReq = 20000, rebirthReq = 3, color = Color3.fromRGB(255, 0, 255) },
+	{ name = "Flash", speedReq = 25000, jumpReq = 100000, rebirthReq = 4, color = Color3.fromRGB(255, 0, 0) },
 }
 
 local TITLE_MULTIPLIERS = {
@@ -30,23 +38,41 @@ local TITLE_MULTIPLIERS = {
 	Flash = 1.50,
 }
 
+local function notifyPlayer(player, title, message, kind, duration, icon, extra)
+	local payload = {
+		title = title,
+		message = message,
+		kind = kind or "Info",
+		duration = duration or 3.5,
+		icon = icon,
+	}
+	if type(extra) == "table" then
+		for key, value in pairs(extra) do
+			payload[key] = value
+		end
+	end
+	showNotificationRemote:FireClient(player, payload)
+end
+
 local function getHighestUnlockedTitle(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local stats = player:FindFirstChild("Stats")
-	if not leaderstats or not stats then return TITLES[1] end
+	if not leaderstats or not stats then return TITLES[1], 1 end
 
 	local speed = leaderstats:FindFirstChild("Speed")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
 	local jumps = stats:FindFirstChild("Jumps")
-	if not speed or not rebirths or not jumps then return TITLES[1] end
+	if not speed or not rebirths or not jumps then return TITLES[1], 1 end
 
 	local highest = TITLES[1]
-	for _, t in ipairs(TITLES) do
+	local highestIndex = 1
+	for index, t in ipairs(TITLES) do
 		if speed.Value >= t.speedReq and jumps.Value >= t.jumpReq and rebirths.Value >= t.rebirthReq then
 			highest = t
+			highestIndex = index
 		end
 	end
-	return highest
+	return highest, highestIndex
 end
 
 local function ensureTitleMultiplier(player, titleName)
@@ -62,6 +88,23 @@ local function ensureTitleMultiplier(player, titleName)
 	titleMult.Value = TITLE_MULTIPLIERS[titleName] or 1
 end
 
+local function maybeNotifyTitleUnlock(player, unlocked, unlockedIndex)
+	local previousIndex = highestUnlockedIndexByPlayer[player]
+	if previousIndex == nil then
+		highestUnlockedIndexByPlayer[player] = unlockedIndex
+		return
+	end
+
+	if unlockedIndex > previousIndex then
+		highestUnlockedIndexByPlayer[player] = unlockedIndex
+		notifyPlayer(player, "New Title Unlocked", unlocked.name .. " is now unlocked!", "Success", 3.5, nil, {
+			iconKey = "Title",
+		})
+	elseif unlockedIndex < previousIndex then
+		highestUnlockedIndexByPlayer[player] = unlockedIndex
+	end
+end
+
 local function updatePlayerTitle(player)
 	local char = player.Character
 	if not char then return end
@@ -72,7 +115,9 @@ local function updatePlayerTitle(player)
 	if old then old:Destroy() end
 
 	local chosen = equippedTitles[player]
-	local unlocked = getHighestUnlockedTitle(player)
+	local unlocked, unlockedIndex = getHighestUnlockedTitle(player)
+	maybeNotifyTitleUnlock(player, unlocked, unlockedIndex)
+
 	local toShow = chosen or unlocked
 	if typeof(toShow) ~= "table" or not toShow.name or not toShow.color then
 		toShow = unlocked
@@ -136,8 +181,12 @@ end)
 Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function()
 		task.wait(0.5)
+		local _, unlockedIndex = getHighestUnlockedTitle(player)
+		highestUnlockedIndexByPlayer[player] = unlockedIndex
 		updatePlayerTitle(player)
+	end)
 
+	task.defer(function()
 		local leaderstats = player:WaitForChild("leaderstats")
 		local stats = player:WaitForChild("Stats")
 
@@ -149,4 +198,5 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	equippedTitles[player] = nil
+	highestUnlockedIndexByPlayer[player] = nil
 end)
