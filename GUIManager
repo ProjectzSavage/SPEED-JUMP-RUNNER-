@@ -8,6 +8,7 @@ local guiList = {
 	{name = "RebirthGUI", frame = "MainFrame"},
 	{name = "TitleGUI", frame = "MainFrame"},
 	{name = "SkinGUI", frame = "MainFrame"},
+	{name = "SpeedShopGUI", frame = "ShopFrame"},
 }
 
 local function closeAllGUIs(except)
@@ -34,7 +35,7 @@ for _, guiData in pairs(guiList) do
 					closeAllGUIs(guiData.name)
 				end
 			end)
-			print("Connected auto-close for", guiData.name)
+			
 		end
 	end
 end
