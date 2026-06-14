@@ -10,7 +10,7 @@ local SKINS = {
 		speedBoost = 0.05,
 		description = "+5% Speed Boost",
 		clothing = { Shirt = 14506431850, Pants = 14506438924 },
-		accessoryNames = {"FlashMask"},
+		accessoryNames = { "FlashMask" },
 	},
 	Speedster = {
 		name = "Speedster",
@@ -39,7 +39,6 @@ local SKINS = {
 		clothing = { Shirt = 0, Pants = 0 },
 		accessoryNames = {},
 	},
-
 }
 
 local equipSkinRemote = ReplicatedStorage:FindFirstChild("EquipSkin")
@@ -49,45 +48,44 @@ if not equipSkinRemote then
 	equipSkinRemote.Parent = ReplicatedStorage
 end
 
+local showNotificationRemote = ReplicatedStorage:FindFirstChild("ShowNotification")
+if not showNotificationRemote then
+	showNotificationRemote = Instance.new("RemoteEvent")
+	showNotificationRemote.Name = "ShowNotification"
+	showNotificationRemote.Parent = ReplicatedStorage
+end
+
 local equippedSkins = {}
 local originalAvatars = {}
 
-local function ensureSkinStats(player)
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then return nil end
-
-	local currentSkin = leaderstats:FindFirstChild("CurrentSkin")
-	if not currentSkin then
-		currentSkin = Instance.new("StringValue")
-		currentSkin.Name = "CurrentSkin"
-		currentSkin.Value = "None"
-		currentSkin.Parent = leaderstats
+local function notifyPlayer(player, title, message, kind, duration, icon, extra)
+	local payload = {
+		title = title,
+		message = message,
+		kind = kind or "Info",
+		duration = duration or 3.5,
+		icon = icon,
+	}
+	if type(extra) == "table" then
+		for key, value in pairs(extra) do
+			payload[key] = value
+		end
 	end
-
-	local speedBoost = leaderstats:FindFirstChild("SpeedBoost")
-	if not speedBoost then
-		speedBoost = Instance.new("NumberValue")
-		speedBoost.Name = "SpeedBoost"
-		speedBoost.Value = 0
-		speedBoost.Parent = leaderstats
-	end
-
-	return currentSkin, speedBoost
+	showNotificationRemote:FireClient(player, payload)
 end
 
-local function saveOriginalAvatar(player)
-	if not player.Character then return end
-	local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then return end
-
-	local ok, desc = pcall(function()
-		return humanoid:GetAppliedDescription()
-	end)
-	if ok and desc then
-		originalAvatars[player] = desc
+local function ensureValue(parent, className, name, defaultValue)
+	local value = parent:FindFirstChild(name)
+	if not value then
+		value = Instance.new(className)
+		value.Name = name
+		value.Value = defaultValue
+		value.Parent = parent
 	end
+	return value
 end
-local function getSpeedBoostValue(player)
+
+local function ensureSkinStorage(player)
 	local stats = player:FindFirstChild("Stats")
 	if not stats then
 		stats = Instance.new("Folder")
@@ -95,35 +93,136 @@ local function getSpeedBoostValue(player)
 		stats.Parent = player
 	end
 
-	local speedBoost = stats:FindFirstChild("SpeedBoost")
-	if not speedBoost then
-		speedBoost = Instance.new("NumberValue")
-		speedBoost.Name = "SpeedBoost"
-		speedBoost.Value = 0
-		speedBoost.Parent = stats
+	local ownedFolder = stats:FindFirstChild("OwnedSkins")
+	if not ownedFolder then
+		ownedFolder = Instance.new("Folder")
+		ownedFolder.Name = "OwnedSkins"
+		ownedFolder.Parent = stats
 	end
 
-	return speedBoost
+	for skinName in pairs(SKINS) do
+		ensureValue(ownedFolder, "BoolValue", skinName, false)
+	end
+
+	return ownedFolder
 end
-local function applySkin(player, skinName)
+
+local function ensureSkinStats(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+	end
+
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
+
+	ensureSkinStorage(player)
+
+	local currentSkin = ensureValue(leaderstats, "StringValue", "CurrentSkin", "None")
+	local speedBoost = ensureValue(stats, "NumberValue", "SpeedBoost", 0)
+	return currentSkin, speedBoost
+end
+
+local function ownsSkin(player, skinName)
+	local stats = player:FindFirstChild("Stats")
+	local ownedFolder = stats and stats:FindFirstChild("OwnedSkins")
+	local ownedValue = ownedFolder and ownedFolder:FindFirstChild(skinName)
+	return ownedValue and ownedValue.Value == true
+end
+
+local function unlockSkinIfEligible(player, skinName)
 	local skin = SKINS[skinName]
-	local speedBoost = getSpeedBoostValue(player)
-	speedBoost.Value = skin.speedBoost
-	if not skin then return end
-	if not player.Character then return end
+	if not skin then return false end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return false end
+
+	local speed = leaderstats:FindFirstChild("Speed")
+	local rebirths = leaderstats:FindFirstChild("Rebirths")
+	if not speed or not rebirths then return false end
+	if speed.Value < skin.speedReq or rebirths.Value < skin.rebirthReq then return false end
+
+	local ownedFolder = ensureSkinStorage(player)
+	local ownedValue = ownedFolder:FindFirstChild(skinName)
+	if ownedValue then
+		ownedValue.Value = true
+	end
+
+	return true
+end
+
+local function canUseSkin(player, skinName)
+	return ownsSkin(player, skinName) or unlockSkinIfEligible(player, skinName)
+end
+
+local function cacheOriginalAvatar(player, humanoid)
+	if originalAvatars[player] then return originalAvatars[player] end
+
+	local ok, desc = pcall(function()
+		return Players:GetHumanoidDescriptionFromUserIdAsync(player.UserId)
+	end)
+	if ok and desc then
+		originalAvatars[player] = desc
+		return desc
+	end
+
+	if humanoid then
+		ok, desc = pcall(function()
+			return humanoid:GetAppliedDescription()
+		end)
+		if ok and desc then
+			originalAvatars[player] = desc
+			return desc
+		end
+	end
+
+	return nil
+end
+
+local function clearSkinAccessories(character)
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Accessory") and child:GetAttribute("SkinAccessory") == true then
+			child:Destroy()
+		end
+	end
+end
+
+local function setSkinState(player, skinName)
+	local currentSkin, speedBoost = ensureSkinStats(player)
+	if skinName and SKINS[skinName] then
+		currentSkin.Value = skinName
+		speedBoost.Value = SKINS[skinName].speedBoost
+	else
+		currentSkin.Value = "None"
+		speedBoost.Value = 0
+	end
+end
+
+local function applySkin(player, skinName, suppressNotification)
+	local skin = SKINS[skinName]
+	if not skin then return false end
+	if not canUseSkin(player, skinName) then return false end
+	if not player.Character then return false end
 
 	local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then return end
+	if not humanoid then return false end
 
-	local success, description = pcall(function()
-		return humanoid:GetAppliedDescription()
-	end)
-	if not success or not description then return end
+	local baseDescription = cacheOriginalAvatar(player, humanoid)
+	if not baseDescription then return false end
 
-	if skin.clothing.Shirt > 0 then
+	clearSkinAccessories(player.Character)
+
+	local description = baseDescription:Clone()
+	if skin.clothing.Shirt and skin.clothing.Shirt > 0 then
 		description.Shirt = skin.clothing.Shirt
 	end
-	if skin.clothing.Pants > 0 then
+	if skin.clothing.Pants and skin.clothing.Pants > 0 then
 		description.Pants = skin.clothing.Pants
 	end
 
@@ -131,66 +230,89 @@ local function applySkin(player, skinName)
 		humanoid:ApplyDescription(description)
 	end)
 
-	task.wait(0.2)
+	task.wait(0.15)
+	clearSkinAccessories(player.Character)
 
 	for _, accessoryName in ipairs(skin.accessoryNames) do
 		local accessory = ServerStorage:FindFirstChild(accessoryName) or ReplicatedStorage:FindFirstChild(accessoryName)
 		if accessory and accessory:IsA("Accessory") then
 			local clone = accessory:Clone()
+			clone:SetAttribute("SkinAccessory", true)
 			clone.Parent = player.Character
 		end
 	end
 
-	local currentSkin, speedBoost = ensureSkinStats(player)
-	if currentSkin then currentSkin.Value = skin.name end
-	if speedBoost then speedBoost.Value = skin.speedBoost end
+	equippedSkins[player] = skinName
+	setSkinState(player, skinName)
+
+	if not suppressNotification then
+		notifyPlayer(player, "Skin Equipped", skin.name .. " equipped.", "Success", 3.5, nil, {
+			iconKey = "Skin",
+		})
+	end
+
+	return true
 end
 
 local function removeSkin(player)
-	if not player.Character then return end
-
-	local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then return end
-
-	if originalAvatars[player] then
-		pcall(function()
-			humanoid:ApplyDescription(originalAvatars[player])
-		end)
-	else
-		local ok, desc = pcall(function()
-			return Players:GetHumanoidDescriptionFromUserIdAsync(player.UserId)
-		end)
-		if ok and desc then
-			pcall(function()
-				humanoid:ApplyDescription(desc)
-			end)
+	if player.Character then
+		local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			local baseDescription = cacheOriginalAvatar(player, humanoid)
+			clearSkinAccessories(player.Character)
+			if baseDescription then
+				pcall(function()
+					humanoid:ApplyDescription(baseDescription:Clone())
+				end)
+			end
 		end
 	end
 
-	local currentSkin, speedBoost = getSpeedBoostValue(player)
-	if currentSkin then currentSkin.Value = "None" end
-	if speedBoost then speedBoost.Value = 0 end
+	equippedSkins[player] = nil
+	setSkinState(player, nil)
 end
 
 equipSkinRemote.OnServerEvent:Connect(function(player, skinName)
-	if skinName and skinName ~= "" then
-		equippedSkins[player] = skinName
-		applySkin(player, skinName)
-	else
-		equippedSkins[player] = nil
+	if typeof(skinName) ~= "string" then return end
+	if skinName == "" or skinName == "None" then
 		removeSkin(player)
+		return
 	end
+	if not SKINS[skinName] then return end
+	applySkin(player, skinName, false)
 end)
 
 Players.PlayerAdded:Connect(function(player)
-	player.CharacterAdded:Connect(function()
-		task.wait(0.6)
-		ensureSkinStats(player)
-		saveOriginalAvatar(player)
+	ensureSkinStats(player)
 
-		task.wait(0.3)
-		if equippedSkins[player] then
-			applySkin(player, equippedSkins[player])
+	local leaderstats = player:WaitForChild("leaderstats")
+	local speed = leaderstats:WaitForChild("Speed")
+	local rebirths = leaderstats:WaitForChild("Rebirths")
+
+	speed.Changed:Connect(function()
+		for skinName in pairs(SKINS) do
+			unlockSkinIfEligible(player, skinName)
+		end
+	end)
+	rebirths.Changed:Connect(function()
+		for skinName in pairs(SKINS) do
+			unlockSkinIfEligible(player, skinName)
+		end
+	end)
+
+	player.CharacterAdded:Connect(function(character)
+		local humanoid = character:WaitForChild("Humanoid", 5)
+		if humanoid then
+			cacheOriginalAvatar(player, humanoid)
+		end
+
+		task.wait(0.35)
+		ensureSkinStats(player)
+
+		local currentSkinValue = leaderstats:FindFirstChild("CurrentSkin")
+		local equipped = equippedSkins[player] or (currentSkinValue and currentSkinValue.Value)
+		if equipped and equipped ~= "None" and SKINS[equipped] and ownsSkin(player, equipped) then
+			applySkin(player, equipped, true)
 		end
 	end)
 end)
