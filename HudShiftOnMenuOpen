@@ -1,0 +1,103 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local SHIFT_Y = 82
+local OPEN_TWEEN = TweenInfo.new(0.36, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local CLOSE_TWEEN = TweenInfo.new(0.30, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+local levelExpGui = playerGui:WaitForChild("LevelExpGUI")
+local hudMain = levelExpGui:WaitForChild("MainFrame")
+
+local trackedMenus = {
+	{ guiName = "RebirthGUI", frameName = "MainFrame" },
+	{ guiName = "TitleGUI", frameName = "MainFrame" },
+	{ guiName = "SkinGUI", frameName = "MainFrame" },
+}
+
+local ignoreNames = {
+	MainFrame = true,
+}
+
+local targets = {}
+local currentStateDown = false
+
+local function makeShiftedPosition(pos)
+	return UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset + SHIFT_Y)
+end
+
+local function collectTargets()
+	table.clear(targets)
+
+	for _, child in ipairs(hudMain:GetChildren()) do
+		if child:IsA("GuiObject") and not ignoreNames[child.Name] then
+			table.insert(targets, {
+				object = child,
+				original = child.Position,
+				down = makeShiftedPosition(child.Position),
+			})
+		end
+	end
+end
+
+local function tweenHud(down)
+	if currentStateDown == down then return end
+	currentStateDown = down
+
+	for _, info in ipairs(targets) do
+		local obj = info.object
+		if obj and obj.Parent then
+			TweenService:Create(
+				obj,
+				down and OPEN_TWEEN or CLOSE_TWEEN,
+				{ Position = down and info.down or info.original }
+			):Play()
+		end
+	end
+end
+
+local function anyTrackedMenuOpen()
+	for _, menu in ipairs(trackedMenus) do
+		local gui = playerGui:FindFirstChild(menu.guiName)
+		local frame = gui and gui:FindFirstChild(menu.frameName)
+		if frame and frame.Visible then
+			return true
+		end
+	end
+	return false
+end
+
+local function refreshHudPosition()
+	tweenHud(anyTrackedMenuOpen())
+end
+
+local function connectMenuWatcher(guiName, frameName)
+	local gui = playerGui:WaitForChild(guiName)
+	local frame = gui:WaitForChild(frameName)
+
+	frame:GetPropertyChangedSignal("Visible"):Connect(refreshHudPosition)
+end
+
+collectTargets()
+
+for _, menu in ipairs(trackedMenus) do
+	task.spawn(connectMenuWatcher, menu.guiName, menu.frameName)
+end
+
+hudMain.ChildAdded:Connect(function()
+	task.defer(function()
+		collectTargets()
+		refreshHudPosition()
+	end)
+end)
+
+hudMain.ChildRemoved:Connect(function()
+	task.defer(function()
+		collectTargets()
+		refreshHudPosition()
+	end)
+end)
+
+refreshHudPosition()
