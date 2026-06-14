@@ -10,11 +10,11 @@ local promptBoostRemote = ReplicatedStorage:WaitForChild("PromptExpBoostPurchase
 local expPopupRemote = ReplicatedStorage:WaitForChild("ExpGainPopup")
 local levelUpFxRemote = ReplicatedStorage:WaitForChild("LevelUpFX")
 local setSpeedRemote = ReplicatedStorage:WaitForChild("SetSpeedRequest")
+local equipSkinRemote = ReplicatedStorage:WaitForChild("EquipSkin")
 local levelUpTemplate = ReplicatedStorage:WaitForChild("LevelUpFXAttachment")
 
 local gui = playerGui:WaitForChild("LevelExpGUI")
 local main = gui:WaitForChild("MainFrame")
-
 local expBarFrame = main:WaitForChild("ExpBarFrame")
 local fill = expBarFrame:WaitForChild("BarClip"):WaitForChild("Fill")
 local levelLabel = expBarFrame:WaitForChild("LevelLabel")
@@ -24,10 +24,8 @@ local boostTopLabel = main:WaitForChild("BoostTopLabel")
 local buyBoostButton = main:WaitForChild("BuyBoostButton")
 local boostText = buyBoostButton:WaitForChild("BoostText")
 local priceText = buyBoostButton:WaitForChild("PriceText")
-
 local gainTotalLabel = main:WaitForChild("GainTotalLabel")
 local winsValueLabel = main:WaitForChild("WinsValueLabel")
-
 local speedInputBox = main:WaitForChild("SpeedInputBox")
 local applySpeedButton = main:WaitForChild("ApplySpeedButton")
 local speedCapLabel = main:WaitForChild("SpeedCapLabel")
@@ -37,14 +35,15 @@ local leftInfoLabel = main:FindFirstChild("LeftInfoLabel")
 local rightInfoLabel = main:FindFirstChild("RightInfoLabel")
 local gamepassMultLabel = main:FindFirstChild("GamepassMultLabel")
 local rebirthMultLabel = main:FindFirstChild("RebirthMultLabel")
+local titleMultLabel = main:FindFirstChild("TitleMultLabel")
 local skinBoostLabel = main:FindFirstChild("SkinBoostLabel")
-
+local currentSkinLabel = main:FindFirstChild("CurrentSkinLabel")
 local worldPopupTemplate = gui:WaitForChild("WorldPopupTemplate")
-
+local skinMainFrame = playerGui:WaitForChild("SkinGUI"):WaitForChild("MainFrame")
+local removeSkinButton = skinMainFrame:WaitForChild("RemoveSkinButton")
 local currentShownSpeed = 0
 local speedNumberValue = Instance.new("NumberValue")
 local speedTween
-
 local gainAnimId = 0
 local gainInTween
 local gainOutTween
@@ -122,7 +121,7 @@ local function showExactGainLabel(totalGain)
 		TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 		{
 			TextTransparency = 0,
-			TextStrokeTransparency = 0
+			TextStrokeTransparency = 0,
 		}
 	)
 	gainInTween:Play()
@@ -134,7 +133,7 @@ local function showExactGainLabel(totalGain)
 			TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 			{
 				TextTransparency = 1,
-				TextStrokeTransparency = 1
+				TextStrokeTransparency = 1,
 			}
 		)
 		gainOutTween:Play()
@@ -148,6 +147,7 @@ end
 local function showWorldPopup(gainAmount)
 	local char = player.Character
 	if not char then return end
+
 	local root = char:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 
@@ -155,55 +155,96 @@ local function showWorldPopup(gainAmount)
 	popup.Enabled = true
 	popup.Adornee = root
 	popup.Parent = playerGui
+	popup.Size = UDim2.fromOffset(240, 130)
 
 	local mainFrame = popup:WaitForChild("Main")
 	local amountLabel = mainFrame:WaitForChild("Amount")
 
+	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	mainFrame.ClipsDescendants = false
+	mainFrame.Position = UDim2.fromScale(0.5, 0.5)
+
+	local startSize = randRange(0.56, 0.68)
+	local popSize = startSize + randRange(0.12, 0.20)
+	local settleSize = startSize + randRange(0.05, 0.10)
+
+	mainFrame.Size = UDim2.fromScale(startSize, startSize)
+	mainFrame.Rotation = randRange(-8, 8)
+
 	amountLabel.Text = "+" .. formatNumber(gainAmount)
 	amountLabel.TextTransparency = 0
 	amountLabel.TextStrokeTransparency = 0
-	mainFrame.Position = UDim2.fromScale(0.5, 0.5)
-	mainFrame.Size = UDim2.fromScale(1, 1)
 
-	local dx = randRange(-0.42, 0.42)
-	local dy = randRange(-0.38, 0.30)
+	local sizeConstraint = amountLabel:FindFirstChildOfClass("UITextSizeConstraint")
+	if not sizeConstraint then
+		sizeConstraint = Instance.new("UITextSizeConstraint")
+		sizeConstraint.MinTextSize = 10
+		sizeConstraint.MaxTextSize = 30
+		sizeConstraint.Parent = amountLabel
+	end
 
-	local sx = clamp(0.5 + dx, 0.22, 0.78)
-	local sy = clamp(0.5 + dy, 0.22, 0.78)
+	local sx = clamp(0.5 + randRange(-0.24, 0.24), 0.20, 0.80)
+	local sy = clamp(0.5 + randRange(-0.22, 0.18), 0.18, 0.82)
+
+	local dx = clamp(sx + randRange(-0.10, 0.10), 0.18, 0.82)
+	local dy = clamp(sy + randRange(-0.10, 0.10), 0.16, 0.84)
+
+	local endX = clamp(0.5 + randRange(-0.05, 0.05), 0.35, 0.65)
+	local endY = clamp(0.5 + randRange(-0.05, 0.05), 0.35, 0.65)
+
 	local spreadPos = UDim2.fromScale(sx, sy)
-
-	local driftPos = UDim2.fromScale(
-		clamp(sx + randRange(-0.08, 0.08), 0.24, 0.76),
-		clamp(sy + randRange(-0.08, 0.08), 0.24, 0.76)
-	)
+	local driftPos = UDim2.fromScale(dx, dy)
+	local endPos = UDim2.fromScale(endX, endY)
 
 	local t1 = TweenService:Create(
 		mainFrame,
 		TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ Position = spreadPos, Size = UDim2.fromScale(1.08, 1.08) }
+		{
+			Position = spreadPos,
+			Size = UDim2.fromScale(popSize, popSize),
+			Rotation = randRange(-14, 14)
+		}
 	)
+
 	local t2 = TweenService:Create(
 		mainFrame,
 		TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-		{ Position = driftPos, Size = UDim2.fromScale(1.00, 1.00) }
+		{
+			Position = driftPos,
+			Size = UDim2.fromScale(settleSize, settleSize),
+			Rotation = randRange(-10, 10)
+		}
 	)
+
 	local t3 = TweenService:Create(
 		mainFrame,
 		TweenInfo.new(0.34, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-		{ Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.16, 0.16) }
+		{
+			Position = endPos,
+			Size = UDim2.fromScale(0.16, 0.16),
+			Rotation = 0
+		}
 	)
+
 	local fadeText = TweenService:Create(
 		amountLabel,
 		TweenInfo.new(0.34, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-		{ TextTransparency = 1, TextStrokeTransparency = 1 }
+		{
+			TextTransparency = 1,
+			TextStrokeTransparency = 1
+		}
 	)
 
 	t1:Play()
-	t1.Completed:Connect(function() t2:Play() end)
+	t1.Completed:Connect(function()
+		t2:Play()
+	end)
+
 	t2.Completed:Connect(function()
 		t3:Play()
 		fadeText:Play()
 	end)
+
 	t3.Completed:Connect(function()
 		popup:Destroy()
 	end)
@@ -232,8 +273,7 @@ end
 
 local function showExpBurst(totalGain)
 	showExactGainLabel(totalGain)
-
-	local burstCount = math.random(4, 7)
+	local burstCount = math.random(4, 5)
 	local pieces = buildExactBurstPieces(totalGain, burstCount)
 
 	for i = 1, burstCount do
@@ -251,7 +291,6 @@ local function fadeLevelUpEmitters(attachment, fadeDuration)
 		if obj:IsA("ParticleEmitter") then
 			table.insert(emitters, obj)
 			maxLifetime = math.max(maxLifetime, obj.Lifetime.Max)
-
 			local emitCount = obj:GetAttribute("EmitCount") or 24
 			obj:Emit(emitCount)
 		end
@@ -269,7 +308,7 @@ local function fadeLevelUpEmitters(attachment, fadeDuration)
 			for _, em in ipairs(emitters) do
 				em.Transparency = NumberSequence.new({
 					NumberSequenceKeypoint.new(0, math.clamp(alpha * 0.75, 0, 1)),
-					NumberSequenceKeypoint.new(1, 1)
+					NumberSequenceKeypoint.new(1, 1),
 				})
 			end
 			task.wait(fadeDuration / steps)
@@ -282,6 +321,7 @@ end
 local function playLevelUpFx(levelUps)
 	local char = player.Character
 	if not char then return end
+
 	local root = char:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 
@@ -300,8 +340,6 @@ local function playLevelUpFx(levelUps)
 	fadeLevelUpEmitters(fx, 0.40)
 end
 
-
-
 local function updateGui()
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local statsFolder = player:FindFirstChild("Stats")
@@ -312,32 +350,31 @@ local function updateGui()
 	local speed = leaderstats:FindFirstChild("Speed")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
 	local wins = leaderstats:FindFirstChild("Wins")
+	local currentSkin = leaderstats:FindFirstChild("CurrentSkin")
 
 	local exp = statsFolder:FindFirstChild("EXP")
 	local expRequired = statsFolder:FindFirstChild("EXPRequired")
 	local rebirthMultiplier = statsFolder:FindFirstChild("Multiplier")
 	local speedBoostStat = statsFolder:FindFirstChild("SpeedBoost")
 	local maxRealStat = statsFolder:FindFirstChild("MaxRealSpeed")
-	local titleMultLabel = main:FindFirstChild("TitleMultLabel")
 	local titleMult = statsFolder:FindFirstChild("TitleMultiplier")
-	local titleBoost = (titleMult and titleMult.Value) or 1
-	if titleMultLabel and titleMult then
-		titleMultLabel.Text = "Multiplier x" .. string.format("%.2f", titleMult.Value) .. " (Title)"
-	end
+
 	if not level or not speed or not rebirths or not exp or not expRequired or not rebirthMultiplier then return end
-
-	levelLabel.Text = "Level: " .. tostring(level.Value)
-	expLabel.Text = "EXP: " .. formatNumber(exp.Value) .. " / " .. formatNumber(expRequired.Value)
-
-	local percent = (expRequired.Value > 0) and (exp.Value / expRequired.Value) or 0
-	tweenFill(percent)
 
 	local gamepassBoost = expBoostValue.Value
 	local rebirthBoost = rebirthMultiplier.Value
-	local totalBoost = gamepassBoost * rebirthBoost * titleBoost
-	local skinBoostPercent = math.floor((((speedBoostStat and speedBoostStat.Value) or 0) * 100) + 0.5)
+	local stepMultiplier = (statsFolder:FindFirstChild("StepMultiplier") and statsFolder.StepMultiplier.Value) or 1
+	local titleBoost = (titleMult and titleMult.Value) or 1
+	local skinBoost = (speedBoostStat and speedBoostStat.Value) or 0
+	local skinMultiplier = 1 + skinBoost
+	local skinBoostPercent = math.floor((skinBoost * 100) + 0.5)
+	local totalBoost = gamepassBoost * rebirthBoost * titleBoost * skinMultiplier * stepMultiplier
 
-	boostTopLabel.Text = string.format("%.2fx TOTAL EXP BOOST", totalBoost)
+	levelLabel.Text = "Level: " .. tostring(level.Value)
+	expLabel.Text = "EXP: " .. formatNumber(exp.Value) .. " / " .. formatNumber(expRequired.Value)
+	tweenFill((expRequired.Value > 0) and (exp.Value / expRequired.Value) or 0)
+
+	boostTopLabel.Text = string.format("x%.2f TOTAL BOOST", totalBoost)
 
 	local nextBoost = getNextBoost(gamepassBoost)
 	if nextBoost then
@@ -361,32 +398,49 @@ local function updateGui()
 	end
 
 	if leftInfoLabel then
-		leftInfoLabel.Text = "Multiplier x" .. tostring(gamepassBoost) .. " (Gamepass)"
+		leftInfoLabel.Text = string.format("Multiplier x%.2f (Gamepass)", gamepassBoost)
 	end
 	if rightInfoLabel then
-		rightInfoLabel.Text = "Multiplier x" .. tostring(rebirthBoost) .. " (Rebirth)"
+		rightInfoLabel.Text = string.format("Multiplier x%.2f (Rebirth)", rebirthBoost)
 	end
 	if gamepassMultLabel then
-		gamepassMultLabel.Text = "Multiplier x" .. tostring(gamepassBoost) .. " (Gamepass)"
+		gamepassMultLabel.Text = string.format("Multiplier x%.2f (Gamepass)", gamepassBoost)
 	end
 	if rebirthMultLabel then
-		rebirthMultLabel.Text = "Multiplier x" .. tostring(rebirthBoost) .. " (Rebirth)"
+		rebirthMultLabel.Text = string.format("Multiplier x%.2f (Rebirth)", rebirthBoost)
+	end
+	if titleMultLabel then
+		titleMultLabel.Text = string.format("Multiplier x%.2f (Title)", titleBoost)
 	end
 	if skinBoostLabel then
-		skinBoostLabel.Text = "+" .. tostring(skinBoostPercent) .. "% Speed (Skin)"
+		skinBoostLabel.Text = string.format("+%d%% (Skin)", skinBoostPercent)
 	end
-
-	-- Use server-provided max real speed value
+	if currentSkinLabel and currentSkin then
+		currentSkinLabel.Text = "Skin: " .. currentSkin.Value
+	end
 	if maxRealStat and speedCapLabel then
 		speedCapLabel.Text = "Max: " .. string.format("%.1f", maxRealStat.Value)
 	end
 end
 
 local function submitChosenSpeed()
-	local txt = speedInputBox.Text
-	local val = tonumber(txt)
+	local val = tonumber(speedInputBox.Text)
 	if not val then return end
 	setSpeedRemote:FireServer(val)
+end
+
+local function setSpeedToMax()
+	local statsFolder = player:FindFirstChild("Stats")
+	if not statsFolder then return end
+
+	local maxRealStat = statsFolder:FindFirstChild("MaxRealSpeed")
+	if not maxRealStat then return end
+
+	local maxValue = tonumber(maxRealStat.Value)
+	if not maxValue then return end
+
+	speedInputBox.Text = string.format("%.1f", maxValue)
+	setSpeedRemote:FireServer(maxValue)
 end
 
 buyBoostButton.MouseButton1Click:Connect(function()
@@ -398,9 +452,15 @@ buyBoostButton.MouseButton1Click:Connect(function()
 	end
 end)
 
-applySpeedButton.MouseButton1Click:Connect(submitChosenSpeed)
+applySpeedButton.MouseButton1Click:Connect(setSpeedToMax)
 speedInputBox.FocusLost:Connect(function(enterPressed)
-	if enterPressed then submitChosenSpeed() end
+	if enterPressed then
+		submitChosenSpeed()
+	end
+end)
+
+removeSkinButton.MouseButton1Click:Connect(function()
+	equipSkinRemote:FireServer("")
 end)
 
 expPopupRemote.OnClientEvent:Connect(showExpBurst)
@@ -410,19 +470,25 @@ local function hookStats()
 	local leaderstats = player:WaitForChild("leaderstats")
 	local statsFolder = player:WaitForChild("Stats")
 	local expBoostValue = player:WaitForChild("ExpBoost")
-	statsFolder:WaitForChild("MaxRealSpeed").Changed:Connect(updateGui)
+
 	leaderstats:WaitForChild("Level").Changed:Connect(updateGui)
 	leaderstats:WaitForChild("Speed").Changed:Connect(updateGui)
 	leaderstats:WaitForChild("Rebirths").Changed:Connect(updateGui)
 	leaderstats:WaitForChild("Wins").Changed:Connect(updateGui)
+	leaderstats:WaitForChild("CurrentSkin").Changed:Connect(updateGui)
 
 	statsFolder:WaitForChild("EXP").Changed:Connect(updateGui)
 	statsFolder:WaitForChild("EXPRequired").Changed:Connect(updateGui)
 	statsFolder:WaitForChild("Multiplier").Changed:Connect(updateGui)
 	statsFolder:WaitForChild("SpeedBoost").Changed:Connect(updateGui)
+	statsFolder:WaitForChild("MaxRealSpeed").Changed:Connect(updateGui)
+
+	local titleMult = statsFolder:FindFirstChild("TitleMultiplier")
+	if titleMult then
+		titleMult.Changed:Connect(updateGui)
+	end
 
 	expBoostValue.Changed:Connect(updateGui)
-
 	updateGui()
 end
 
