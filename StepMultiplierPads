@@ -1,0 +1,56 @@
+local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+
+local player = Players.LocalPlayer
+
+local LOCKED_COLOR = Color3.fromRGB(110, 110, 110)
+local OWNED_COLOR = Color3.fromRGB(255, 230, 40)
+local EQUIPPED_COLOR = Color3.fromRGB(40, 255, 85)
+
+local function getWins()
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+	return (wins and wins.Value) or 0
+end
+
+local function getEquippedMultiplier()
+	local stats = player:FindFirstChild("Stats")
+	local stepMult = stats and stats:FindFirstChild("StepMultiplier")
+	return (stepMult and stepMult.Value) or 1
+end
+
+local function applyPadState(part)
+	if not part:IsA("BasePart") then return end
+
+	local winsRequired = tonumber(part:GetAttribute("WinsRequired")) or 0
+	local stepMultiplier = tonumber(part:GetAttribute("StepMultiplier")) or 1
+	local wins = getWins()
+	local equippedMultiplier = getEquippedMultiplier()
+
+	if stepMultiplier == equippedMultiplier and wins >= winsRequired then
+		part.Color = EQUIPPED_COLOR
+	elseif wins >= winsRequired then
+		part.Color = OWNED_COLOR
+	else
+		part.Color = LOCKED_COLOR
+	end
+end
+
+local function refreshAllPads()
+	for _, part in ipairs(CollectionService:GetTagged("StepMultiplierPad")) do
+		applyPadState(part)
+	end
+end
+
+for _, part in ipairs(CollectionService:GetTagged("StepMultiplierPad")) do
+	applyPadState(part)
+end
+CollectionService:GetInstanceAddedSignal("StepMultiplierPad"):Connect(applyPadState)
+
+local leaderstats = player:WaitForChild("leaderstats")
+local stats = player:WaitForChild("Stats")
+
+leaderstats:WaitForChild("Wins").Changed:Connect(refreshAllPads)
+stats:WaitForChild("StepMultiplier").Changed:Connect(refreshAllPads)
+
+refreshAllPads()
