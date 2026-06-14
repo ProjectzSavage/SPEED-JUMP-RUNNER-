@@ -22,6 +22,8 @@ local closeButton = mainFrame:WaitForChild("CloseButton")
 local template = skinList:WaitForChild("SkinRowTemplate")
 template.Visible = false
 
+local removeSkinButton = mainFrame:WaitForChild("RemoveSkinButton")
+
 local equippedSkinName = "None"
 
 local animating = false
@@ -176,7 +178,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		end
 	end
 end)
-
+removeSkinButton.MouseButton1Click:Connect(function()
+	equippedSkinName = "None"
+	equipSkinRemote:FireServer("")
+	updateSkinDisplay()
+end)
 task.spawn(function()
 	local leaderstats = player:WaitForChild("leaderstats")
 	leaderstats:WaitForChild("Speed").Changed:Connect(function()
