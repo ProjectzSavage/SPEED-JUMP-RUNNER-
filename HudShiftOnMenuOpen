@@ -4,12 +4,11 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local SHIFT_Y = 82
+-- Increase this if you want the HUD to move further down.
+local SHIFT_Y = 137
+
 local OPEN_TWEEN = TweenInfo.new(0.36, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local CLOSE_TWEEN = TweenInfo.new(0.30, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-
-local levelExpGui = playerGui:WaitForChild("LevelExpGUI")
-local hudMain = levelExpGui:WaitForChild("MainFrame")
 
 local trackedMenus = {
 	{ guiName = "RebirthGUI", frameName = "MainFrame" },
@@ -17,42 +16,73 @@ local trackedMenus = {
 	{ guiName = "SkinGUI", frameName = "MainFrame" },
 }
 
-local ignoreNames = {
-	MainFrame = true,
-}
-
 local targets = {}
+local originalPositions = {}
 local currentStateDown = false
+
+local function getLevelHudMain()
+	local gui = playerGui:FindFirstChild("LevelExpGUI")
+	return gui and gui:FindFirstChild("MainFrame")
+end
+
+local function getShopTopOffersFrame()
+	local gui = playerGui:FindFirstChild("SpeedShopGUI")
+	return gui and gui:FindFirstChild("TopOffersFrame")
+end
 
 local function makeShiftedPosition(pos)
 	return UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset + SHIFT_Y)
 end
 
-local function collectTargets()
-	table.clear(targets)
+local function makeUnshiftedPosition(pos)
+	return UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset - SHIFT_Y)
+end
 
-	for _, child in ipairs(hudMain:GetChildren()) do
-		if child:IsA("GuiObject") and not ignoreNames[child.Name] then
-			table.insert(targets, {
-				object = child,
-				original = child.Position,
-				down = makeShiftedPosition(child.Position),
-			})
-		end
+local function registerTarget(obj)
+	if not obj or not obj:IsA("GuiObject") then return end
+	if targets[obj] then return end
+
+	local base = originalPositions[obj]
+	if not base then
+		base = currentStateDown and makeUnshiftedPosition(obj.Position) or obj.Position
+		originalPositions[obj] = base
 	end
+
+	targets[obj] = true
+end
+
+local function rebuildTargets()
+	targets = {}
+
+	local hudMain = getLevelHudMain()
+	if hudMain then
+		registerTarget(hudMain:FindFirstChild("ExpBarFrame"))
+		registerTarget(hudMain:FindFirstChild("BoostTopLabel"))
+		registerTarget(hudMain:FindFirstChild("TitleMultLabel"))
+		registerTarget(hudMain:FindFirstChild("GamepassMultLabel"))
+		registerTarget(hudMain:FindFirstChild("SkinBoostLabel"))
+		registerTarget(hudMain:FindFirstChild("RebirthMultLabel"))
+		registerTarget(hudMain:FindFirstChild("LeftIconFrame", true))
+		registerTarget(hudMain:FindFirstChild("LevelLabel", true))
+		registerTarget(hudMain:FindFirstChild("ExpLabel", true))
+		registerTarget(hudMain:FindFirstChild("BarClip", true))
+	end
+
+	registerTarget(getShopTopOffersFrame())
 end
 
 local function tweenHud(down)
 	if currentStateDown == down then return end
 	currentStateDown = down
 
-	for _, info in ipairs(targets) do
-		local obj = info.object
+	for obj in pairs(targets) do
 		if obj and obj.Parent then
+			local base = originalPositions[obj] or obj.Position
+			originalPositions[obj] = base
 			TweenService:Create(
 				obj,
 				down and OPEN_TWEEN or CLOSE_TWEEN,
-				{ Position = down and info.down or info.original }
+				{ Position = down and makeShiftedPosition(base) or base }
 			):Play()
 		end
 	end
@@ -70,34 +100,38 @@ local function anyTrackedMenuOpen()
 end
 
 local function refreshHudPosition()
+	rebuildTargets()
 	tweenHud(anyTrackedMenuOpen())
 end
 
 local function connectMenuWatcher(guiName, frameName)
 	local gui = playerGui:WaitForChild(guiName)
 	local frame = gui:WaitForChild(frameName)
-
 	frame:GetPropertyChangedSignal("Visible"):Connect(refreshHudPosition)
 end
-
-collectTargets()
 
 for _, menu in ipairs(trackedMenus) do
 	task.spawn(connectMenuWatcher, menu.guiName, menu.frameName)
 end
 
-hudMain.ChildAdded:Connect(function()
-	task.defer(function()
-		collectTargets()
-		refreshHudPosition()
-	end)
+playerGui.ChildAdded:Connect(function()
+	task.defer(refreshHudPosition)
+end)
+playerGui.ChildRemoved:Connect(function()
+	task.defer(refreshHudPosition)
 end)
 
-hudMain.ChildRemoved:Connect(function()
-	task.defer(function()
-		collectTargets()
-		refreshHudPosition()
+local function hookDescendants(guiName)
+	local gui = playerGui:WaitForChild(guiName)
+	gui.DescendantAdded:Connect(function()
+		task.defer(refreshHudPosition)
 	end)
-end)
+	gui.DescendantRemoving:Connect(function()
+		task.defer(refreshHudPosition)
+	end)
+end
+
+task.spawn(hookDescendants, "LevelExpGUI")
+task.spawn(hookDescendants, "SpeedShopGUI")
 
 refreshHudPosition()
