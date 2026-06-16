@@ -1,0 +1,170 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local COMBO_START = 5
+local RESET_TIME = 1.4
+local MIN_JUMP_GAP = 0.10
+
+local comboColors = {
+	Color3.fromRGB(255, 80, 120),
+	Color3.fromRGB(255, 210, 70),
+	Color3.fromRGB(60, 255, 140),
+	Color3.fromRGB(80, 190, 255),
+	Color3.fromRGB(190, 110, 255),
+}
+
+local gui = playerGui:WaitForChild("JumpComboGUI")
+local holder = gui:WaitForChild("Holder")
+local comboFrame = holder:WaitForChild("ComboFrame")
+local comboScale = comboFrame:WaitForChild("UIScale")
+local titleLabel = comboFrame:WaitForChild("TitleLabel")
+local countLabel = comboFrame:WaitForChild("CountLabel")
+
+comboFrame.Visible = false
+comboScale.Scale = 0
+
+local combo = 0
+local lastJumpTime = 0
+local lastCountedJump = 0
+local showing = false
+local fadeOutToken = 0
+
+local function spawnBurst()
+	for i = 1, 7 do
+		local dot = Instance.new("Frame")
+		dot.AnchorPoint = Vector2.new(0.5, 0.5)
+		dot.Position = UDim2.fromScale(0.5, 0.5)
+		dot.Size = UDim2.fromOffset(math.random(8, 14), math.random(8, 14))
+		dot.BackgroundColor3 = comboColors[math.random(1, #comboColors)]
+		dot.BorderSizePixel = 0
+		dot.BackgroundTransparency = 0
+		dot.Parent = holder
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(1, 0)
+		corner.Parent = dot
+
+		local angle = math.rad((360 / 7) * i + math.random(-16, 16))
+		local dist = math.random(40, 85)
+		local dx = math.cos(angle) * dist
+		local dy = math.sin(angle) * dist
+
+		TweenService:Create(dot, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Position = UDim2.new(0.5, dx, 0.5, dy),
+			BackgroundTransparency = 1,
+			Rotation = math.random(-180, 180),
+		}):Play()
+
+		task.delay(0.3, function()
+			if dot and dot.Parent then
+				dot:Destroy()
+			end
+		end)
+	end
+end
+
+local function pulseCombo()
+	TweenService:Create(comboScale, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1.18,
+	}):Play()
+	task.delay(0.08, function()
+		TweenService:Create(comboScale, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Scale = 1,
+		}):Play()
+	end)
+
+	TweenService:Create(countLabel, TweenInfo.new(0.10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Rotation = math.random(-8, 8),
+		TextColor3 = comboColors[math.random(1, #comboColors)],
+	}):Play()
+	task.delay(0.12, function()
+		TweenService:Create(countLabel, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Rotation = 0,
+		}):Play()
+	end)
+
+	spawnBurst()
+end
+
+local function hideCombo()
+	fadeOutToken += 1
+	local myToken = fadeOutToken
+	showing = false
+	TweenService:Create(comboScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Scale = 0,
+	}):Play()
+	task.delay(0.2, function()
+		if myToken ~= fadeOutToken then return end
+		comboFrame.Visible = false
+	end)
+end
+
+local function showCombo()
+	if not showing then
+		showing = true
+		comboFrame.Visible = true
+		comboScale.Scale = 0
+		TweenService:Create(comboScale, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Scale = 1,
+		}):Play()
+	else
+		pulseCombo()
+	end
+end
+
+local function onJumpCounted()
+	local now = tick()
+	if now - lastCountedJump < MIN_JUMP_GAP then return end
+	lastCountedJump = now
+
+	if now - lastJumpTime <= RESET_TIME then
+		combo += 1
+	else
+		combo = 1
+	end
+	lastJumpTime = now
+
+	if combo >= COMBO_START then
+		titleLabel.Text = "JUMP COMBO"
+		countLabel.Text = "x" .. tostring(combo)
+		showCombo()
+		pulseCombo()
+	end
+end
+
+local function bindCharacter(character)
+	local humanoid = character:WaitForChild("Humanoid")
+	combo = 0
+	lastJumpTime = 0
+	lastCountedJump = 0
+	hideCombo()
+
+	humanoid.Jumping:Connect(function(active)
+		if active then
+			onJumpCounted()
+		end
+	end)
+
+	humanoid.Died:Connect(function()
+		combo = 0
+		hideCombo()
+	end)
+end
+
+if player.Character then
+	task.spawn(bindCharacter, player.Character)
+end
+player.CharacterAdded:Connect(bindCharacter)
+
+task.spawn(function()
+	while true do
+		if combo > 0 and tick() - lastJumpTime > RESET_TIME then
+			combo = 0
+			hideCombo()
+		end
+		task.wait(0.08)
+	end
+end)
