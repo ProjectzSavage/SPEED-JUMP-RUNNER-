@@ -20,10 +20,9 @@ end
 local notificationGui = playerGui:WaitForChild("NotificationGUI")
 local holder = notificationGui:WaitForChild("Holder")
 local template = holder:WaitForChild("NotificationTemplate")
-template.Visible = false
 
+template.Visible = false
 holder.ClipsDescendants = false
-notificationGui.ClipsDescendants = false
 
 local confettiLayer = notificationGui:FindFirstChild("ConfettiLayer")
 if not confettiLayer then
@@ -54,16 +53,6 @@ local CONFETTI_COLORS = {
 }
 
 local layoutCounter = 0
-local BASE_SIZE = template.Size
-
-local function scaledUDim2(base, mult)
-	return UDim2.new(
-		base.X.Scale * mult,
-		math.floor(base.X.Offset * mult + 0.5),
-		base.Y.Scale,
-		math.floor(base.Y.Offset * mult + 0.5)
-	)
-end
 
 local function resolveIcon(data)
 	if data.icon and data.icon ~= "" then
@@ -72,7 +61,19 @@ local function resolveIcon(data)
 	if data.iconKey and ICONS[data.iconKey] then
 		return ICONS[data.iconKey]
 	end
+	if data.userIconUserId then
+		local ok, content = pcall(function()
+			return Players:GetUserThumbnailAsync(tonumber(data.userIconUserId), Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+		end)
+		if ok and content then
+			return content
+		end
+	end
 	return nil
+end
+
+local function getTemplateScale(clone)
+	return clone:FindFirstChildOfClass("UIScale") or clone:FindFirstChildWhichIsA("UIScale", true)
 end
 
 local function playUiSound(soundId, volume)
@@ -148,57 +149,41 @@ local function showNotification(data)
 	clone.Name = "Notification_" .. tostring(layoutCounter)
 	clone.Visible = true
 	clone.LayoutOrder = layoutCounter
-	clone.ClipsDescendants = true
 	clone.Parent = holder
 
-	local icon = clone:FindFirstChild("Icon")
-	local titleLabel = clone:FindFirstChild("TitleLabel")
-	local messageLabel = clone:FindFirstChild("MessageLabel")
-	local resolvedIcon = resolveIcon(data)
-	local titleColor = COLORS[data.kind] or COLORS.Info
-	local sizeMult = math.max(1, tonumber(data.scaleMultiplier) or 1)
-	local targetSize = scaledUDim2(BASE_SIZE, sizeMult)
+	local scale = getTemplateScale(clone)
+	local icon = clone:FindFirstChild("Icon", true)
+	local titleLabel = clone:FindFirstChild("TitleLabel", true)
+	local messageLabel = clone:FindFirstChild("MessageLabel", true)
 
 	if titleLabel then
+		titleLabel.RichText = data.richText == true
 		titleLabel.Text = data.title or "Notification"
-		titleLabel.TextColor3 = titleColor
+		if not data.rainbowTitle then
+			titleLabel.TextColor3 = COLORS[data.kind] or COLORS.Info
+		end
 	end
 	if messageLabel then
+		messageLabel.RichText = data.richText == true
 		messageLabel.Text = data.message or ""
+		messageLabel.TextColor3 = messageLabel.TextColor3
 	end
 
+	local resolvedIcon = resolveIcon(data)
 	if icon then
 		if resolvedIcon then
 			icon.Image = resolvedIcon
 			icon.Visible = true
-			if titleLabel then
-				titleLabel.Position = UDim2.new(0, 58, 0, 10)
-				titleLabel.Size = UDim2.new(1, -68, 0, 24)
-			end
-			if messageLabel then
-				messageLabel.Position = UDim2.new(0, 58, 0, 38)
-				messageLabel.Size = UDim2.new(1, -68, 0, 28)
-			end
+			icon.ImageTransparency = 0
 		else
 			icon.Visible = false
-			if titleLabel then
-				titleLabel.Position = UDim2.new(0, 16, 0, 10)
-				titleLabel.Size = UDim2.new(1, -26, 0, 24)
-			end
-			if messageLabel then
-				messageLabel.Position = UDim2.new(0, 16, 0, 38)
-				messageLabel.Size = UDim2.new(1, -26, 0, 28)
-			end
 		end
 	end
-
-	clone.Size = UDim2.new(0, 0, 0, 0)
 
 	local stopRainbow
 	if data.rainbowTitle and titleLabel then
 		stopRainbow = startRainbowTitle(titleLabel)
 	end
-
 	if data.confetti then
 		playConfetti(data.confettiCount)
 	end
@@ -206,21 +191,29 @@ local function showNotification(data)
 		playUiSound(data.soundId, data.soundVolume or 0.9)
 	end
 
-	local openTween = TweenService:Create(clone, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = targetSize,
-	})
-	openTween:Play()
+	if scale then
+		local targetScale = math.max(1, tonumber(data.scaleMultiplier) or 1)
+		scale.Scale = 0
+		TweenService:Create(scale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Scale = targetScale,
+		}):Play()
+	end
 
 	local duration = tonumber(data.duration) or 3.5
 	task.delay(duration, function()
 		if not clone or not clone.Parent then return end
 		if stopRainbow then stopRainbow() end
 
-		local closeTween = TweenService:Create(clone, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Size = UDim2.new(0, 0, 0, 0),
-		})
-		closeTween:Play()
-		closeTween.Completed:Wait()
+		if scale then
+			local closeTween = TweenService:Create(scale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Scale = 0,
+			})
+			closeTween:Play()
+			closeTween.Completed:Wait()
+		else
+			task.wait(0.18)
+		end
+
 		if clone then
 			clone:Destroy()
 		end
