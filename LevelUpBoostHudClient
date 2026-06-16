@@ -1,0 +1,35 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local BOOST_MULTIPLIER = 1.5
+
+local gui = playerGui:WaitForChild("LevelUpBoostGUI")
+local holder = gui:WaitForChild("Holder")
+local frame = holder:WaitForChild("LevelUpBoostFrame")
+local nameLabel = frame:WaitForChild("NameLabel")
+local timerLabel = frame:WaitForChild("TimerLabel")
+
+local stats = player:WaitForChild("Stats")
+local boostEndTime = stats:WaitForChild("LevelUpSpeedBoostEndTime")
+
+local function refresh()
+	local active = boostEndTime.Value > tick()
+	frame.Visible = active
+	if not active then return end
+
+	nameLabel.Text = string.format("x%.1f Speed Boost", BOOST_MULTIPLIER)
+	timerLabel.Text = string.format("Time Left: %.1fs", math.max(0, boostEndTime.Value - tick()))
+end
+
+boostEndTime.Changed:Connect(refresh)
+
+RunService.RenderStepped:Connect(function()
+	if frame.Visible then
+		refresh()
+	end
+end)
+
+refresh()
