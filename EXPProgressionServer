@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 local CollectionService = game:GetService("CollectionService")
 
-local STEP_MULTIPLIERS = {
+local DEFAULT_STEP_MULTIPLIERS = {
 	{ winsRequired = 0, multiplier = 1, order = 1 },
 	{ winsRequired = 3, multiplier = 2, order = 2 },
 	{ winsRequired = 15, multiplier = 5, order = 3 },
@@ -68,8 +68,13 @@ for productKey, info in pairs(SPEED_SHOP_PRODUCTS) do
 	end
 end
 
+local POTION_PRODUCT_BY_ID = {}
+local CONNECTED_POTION_PROMPTS = {}
+
 local BASE_REAL_SPEED = 5
-local BASE_EXP_PER_JUMP = 50
+local BASE_EXP_PER_JUMP = 100
+local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.5
+local LEVEL_UP_SPEED_BOOST_DURATION = 7
 local MAX_LEVEL = 1000000
 local MAX_REAL_SPEED_CAP = 250
 local JUMP_DEBOUNCE = 0.1
@@ -101,6 +106,53 @@ local function ensureValue(parent, className, name, defaultValue)
 		v.Parent = parent
 	end
 	return v
+end
+
+local function getPotionPromptConfig(prompt)
+	if not prompt or not prompt:IsA("ProximityPrompt") then
+		return nil
+	end
+
+	local productId = tonumber(prompt:GetAttribute("PotionProductId")) or tonumber(prompt:GetAttribute("ProductId"))
+	if not productId or productId <= 0 then
+		return nil
+	end
+
+	local potionType = tostring(prompt:GetAttribute("PotionType") or "")
+	if potionType ~= "Exp" and potionType ~= "Wins" then
+		return nil
+	end
+
+	local multiplier = tonumber(prompt:GetAttribute("PotionMultiplier")) or 2
+	local durationMinutes = tonumber(prompt:GetAttribute("PotionDurationMinutes")) or 30
+	local potionName = tostring(prompt:GetAttribute("PotionName") or ((multiplier .. "x " .. potionType .. " Potion")))
+	local potionIcon = tostring(prompt:GetAttribute("PotionIcon") or "")
+
+	return {
+		productId = productId,
+		potionType = potionType,
+		multiplier = math.max(1, multiplier),
+		durationSeconds = math.max(60, math.floor(durationMinutes * 60)),
+		name = potionName,
+		icon = potionIcon,
+	}
+end
+
+local function registerPotionPrompt(prompt)
+	if not prompt or CONNECTED_POTION_PROMPTS[prompt] then return end
+	if not prompt:IsA("ProximityPrompt") then return end
+
+	local config = getPotionPromptConfig(prompt)
+	if not config then return end
+	POTION_PRODUCT_BY_ID[config.productId] = config
+	CONNECTED_POTION_PROMPTS[prompt] = true
+
+	prompt.Triggered:Connect(function(player)
+		local latestConfig = getPotionPromptConfig(prompt)
+		if not latestConfig then return end
+		POTION_PRODUCT_BY_ID[latestConfig.productId] = latestConfig
+		MarketplaceService:PromptProductPurchase(player, latestConfig.productId)
+	end)
 end
 
 local function formatNumber(n)
@@ -158,9 +210,42 @@ local function getNextBoost(currentBoost)
 	return math.min(currentBoost * 2, 128)
 end
 
+local function getStepMultiplierDefinitions()
+	local fromPads = {}
+	for _, part in ipairs(CollectionService:GetTagged("StepMultiplierPad")) do
+		if part:IsA("BasePart") then
+			local winsRequired = tonumber(part:GetAttribute("WinsRequired")) or 0
+			local multiplier = tonumber(part:GetAttribute("StepMultiplier")) or 1
+			local order = tonumber(part:GetAttribute("StepOrder")) or (#fromPads + 1)
+			table.insert(fromPads, {
+				winsRequired = winsRequired,
+				multiplier = math.max(1, multiplier),
+				order = math.max(1, math.floor(order)),
+			})
+		end
+	end
+
+	if #fromPads == 0 then
+		return DEFAULT_STEP_MULTIPLIERS
+	end
+
+	table.sort(fromPads, function(a, b)
+		if a.winsRequired == b.winsRequired then
+			if a.multiplier == b.multiplier then
+				return a.order < b.order
+			end
+			return a.multiplier < b.multiplier
+		end
+		return a.winsRequired < b.winsRequired
+	end)
+
+	return fromPads
+end
+
 local function getHighestUnlockedStepMultiplier(wins)
-	local best = STEP_MULTIPLIERS[1]
-	for _, info in ipairs(STEP_MULTIPLIERS) do
+	local definitions = getStepMultiplierDefinitions()
+	local best = definitions[1] or { winsRequired = 0, multiplier = 1, order = 1 }
+	for _, info in ipairs(definitions) do
 		if wins >= info.winsRequired and info.multiplier >= best.multiplier then
 			best = info
 		end
@@ -210,7 +295,17 @@ local function autoEquipHighestStepMultiplier(player, suppressNotification)
 	local best = getHighestUnlockedStepMultiplier(wins.Value)
 	if not best then
 		setEquippedStepMultiplier(player, 1, 1, suppressNotification)
-		return STEP_MULTIPLIERS[1]
+		return { winsRequired = 0, multiplier = 1, order = 1 }
+	end
+
+	local currentMultiplier = getStepMultiplierValue(player)
+	local currentOrder = getEquippedStepOrder(player)
+	if currentMultiplier >= best.multiplier and currentOrder >= 1 then
+		return {
+			winsRequired = best.winsRequired,
+			multiplier = currentMultiplier,
+			order = currentOrder,
+		}
 	end
 
 	setEquippedStepMultiplier(player, best.multiplier, best.order, suppressNotification)
@@ -244,6 +339,182 @@ local function getSkinSpeedBoost(player)
 	return 0
 end
 
+local function getExpPotionMultiplier(player)
+	local stats = player:FindFirstChild("Stats")
+	local value = stats and stats:FindFirstChild("ExpPotionMultiplier")
+	local endTime = stats and stats:FindFirstChild("ExpPotionEndTime")
+	if value and endTime and value.Value > 1 and endTime.Value > os.time() then
+		return value.Value
+	end
+	return 1
+end
+
+local function getWinsPotionMultiplier(player)
+	local stats = player:FindFirstChild("Stats")
+	local value = stats and stats:FindFirstChild("WinsPotionMultiplier")
+	local endTime = stats and stats:FindFirstChild("WinsPotionEndTime")
+	if value and endTime and value.Value > 1 and endTime.Value > os.time() then
+		return value.Value
+	end
+	return 1
+end
+
+local function normalizeAssetId(value)
+	if value == nil then return "" end
+	local raw = tostring(value):gsub("%s+", "")
+	if raw == "" then return "" end
+	if raw:find("rbxassetid://", 1, true) then
+		return raw
+	end
+	local number = tonumber(raw:match("%d+"))
+	if number and number > 0 then
+		return "rbxassetid://" .. tostring(math.floor(number))
+	end
+	return raw
+end
+
+local function refreshVisiblePotionState(player, potionType)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then return end
+	local now = os.time()
+
+	if potionType == "Exp" then
+		local localMult = stats:FindFirstChild("LocalExpPotionMultiplier")
+		local localEnd = stats:FindFirstChild("LocalExpPotionEndTime")
+		local localName = stats:FindFirstChild("LocalExpPotionName")
+		local localIcon = stats:FindFirstChild("LocalExpPotionIcon")
+		local globalMult = stats:FindFirstChild("GlobalExpPotionMultiplier")
+		local globalEnd = stats:FindFirstChild("GlobalExpPotionEndTime")
+		local globalName = stats:FindFirstChild("GlobalExpPotionName")
+		local globalIcon = stats:FindFirstChild("GlobalExpPotionIcon")
+		local visibleMult = stats:FindFirstChild("ExpPotionMultiplier")
+		local visibleEnd = stats:FindFirstChild("ExpPotionEndTime")
+		local visibleName = stats:FindFirstChild("ExpPotionName")
+		local visibleIcon = stats:FindFirstChild("ExpPotionIcon")
+		if not (localMult and localEnd and localName and localIcon and globalMult and globalEnd and globalName and globalIcon and visibleMult and visibleEnd and visibleName and visibleIcon) then return end
+
+		local useGlobal = globalEnd.Value > now and globalMult.Value >= localMult.Value and globalMult.Value > 1
+		local useLocal = localEnd.Value > now and localMult.Value > 1
+		if useGlobal then
+			visibleMult.Value = globalMult.Value
+			visibleEnd.Value = globalEnd.Value
+			visibleName.Value = globalName.Value
+			visibleIcon.Value = globalIcon.Value
+		elseif useLocal then
+			visibleMult.Value = localMult.Value
+			visibleEnd.Value = localEnd.Value
+			visibleName.Value = localName.Value
+			visibleIcon.Value = localIcon.Value
+		else
+			visibleMult.Value = 1
+			visibleEnd.Value = 0
+			visibleName.Value = ""
+			visibleIcon.Value = ""
+		end
+	elseif potionType == "Wins" then
+		local localMult = stats:FindFirstChild("LocalWinsPotionMultiplier")
+		local localEnd = stats:FindFirstChild("LocalWinsPotionEndTime")
+		local localName = stats:FindFirstChild("LocalWinsPotionName")
+		local localIcon = stats:FindFirstChild("LocalWinsPotionIcon")
+		local globalMult = stats:FindFirstChild("GlobalWinsPotionMultiplier")
+		local globalEnd = stats:FindFirstChild("GlobalWinsPotionEndTime")
+		local globalName = stats:FindFirstChild("GlobalWinsPotionName")
+		local globalIcon = stats:FindFirstChild("GlobalWinsPotionIcon")
+		local visibleMult = stats:FindFirstChild("WinsPotionMultiplier")
+		local visibleEnd = stats:FindFirstChild("WinsPotionEndTime")
+		local visibleName = stats:FindFirstChild("WinsPotionName")
+		local visibleIcon = stats:FindFirstChild("WinsPotionIcon")
+		if not (localMult and localEnd and localName and localIcon and globalMult and globalEnd and globalName and globalIcon and visibleMult and visibleEnd and visibleName and visibleIcon) then return end
+
+		local useGlobal = globalEnd.Value > now and globalMult.Value >= localMult.Value and globalMult.Value > 1
+		local useLocal = localEnd.Value > now and localMult.Value > 1
+		if useGlobal then
+			visibleMult.Value = globalMult.Value
+			visibleEnd.Value = globalEnd.Value
+			visibleName.Value = globalName.Value
+			visibleIcon.Value = globalIcon.Value
+		elseif useLocal then
+			visibleMult.Value = localMult.Value
+			visibleEnd.Value = localEnd.Value
+			visibleName.Value = localName.Value
+			visibleIcon.Value = localIcon.Value
+		else
+			visibleMult.Value = 1
+			visibleEnd.Value = 0
+			visibleName.Value = ""
+			visibleIcon.Value = ""
+		end
+	elseif potionType == "Speed" then
+		local globalMult = stats:FindFirstChild("GlobalSpeedPotionMultiplier")
+		local globalEnd = stats:FindFirstChild("GlobalSpeedPotionEndTime")
+		local globalName = stats:FindFirstChild("GlobalSpeedPotionName")
+		local globalIcon = stats:FindFirstChild("GlobalSpeedPotionIcon")
+		local visibleMult = stats:FindFirstChild("SpeedPotionMultiplier")
+		local visibleEnd = stats:FindFirstChild("SpeedPotionEndTime")
+		local visibleName = stats:FindFirstChild("SpeedPotionName")
+		local visibleIcon = stats:FindFirstChild("SpeedPotionIcon")
+		if not (globalMult and globalEnd and globalName and globalIcon and visibleMult and visibleEnd and visibleName and visibleIcon) then return end
+
+		if globalEnd.Value > now and globalMult.Value > 1 then
+			visibleMult.Value = globalMult.Value
+			visibleEnd.Value = globalEnd.Value
+			visibleName.Value = globalName.Value
+			visibleIcon.Value = globalIcon.Value
+		else
+			visibleMult.Value = 1
+			visibleEnd.Value = 0
+			visibleName.Value = ""
+			visibleIcon.Value = ""
+		end
+	end
+end
+
+local function grantPurchasablePotion(player, config)
+	if typeof(config) ~= "table" then return false end
+	local stats = player:FindFirstChild("Stats")
+	if not stats then return false end
+
+	local now = os.time()
+	local addSeconds = math.max(60, tonumber(config.durationSeconds) or 1800)
+	local multiplier = math.max(1, tonumber(config.multiplier) or 1)
+	local potionName = tostring(config.name or (tostring(multiplier) .. "x Potion"))
+	local potionIcon = normalizeAssetId(config.icon)
+
+	if config.potionType == "Exp" then
+		local mult = stats:FindFirstChild("LocalExpPotionMultiplier")
+		local expires = stats:FindFirstChild("LocalExpPotionEndTime")
+		local name = stats:FindFirstChild("LocalExpPotionName")
+		local icon = stats:FindFirstChild("LocalExpPotionIcon")
+		if not mult or not expires or not name or not icon then return false end
+		mult.Value = multiplier
+		expires.Value = math.max(now, expires.Value) + addSeconds
+		name.Value = potionName
+		icon.Value = potionIcon
+		refreshVisiblePotionState(player, "Exp")
+		notifyPlayer(player, "Potion Activated", potionName .. " activated!", "Success", 3.5, nil, {
+			icon = potionIcon,
+		})
+		return true
+	elseif config.potionType == "Wins" then
+		local mult = stats:FindFirstChild("LocalWinsPotionMultiplier")
+		local expires = stats:FindFirstChild("LocalWinsPotionEndTime")
+		local name = stats:FindFirstChild("LocalWinsPotionName")
+		local icon = stats:FindFirstChild("LocalWinsPotionIcon")
+		if not mult or not expires or not name or not icon then return false end
+		mult.Value = multiplier
+		expires.Value = math.max(now, expires.Value) + addSeconds
+		name.Value = potionName
+		icon.Value = potionIcon
+		refreshVisiblePotionState(player, "Wins")
+		notifyPlayer(player, "Potion Activated", potionName .. " activated!", "Success", 3.5, nil, {
+			icon = potionIcon,
+		})
+		return true
+	end
+
+	return false
+end
+
 local function getMaxRealSpeed(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return BASE_REAL_SPEED end
@@ -273,6 +544,10 @@ local function applyWalkSpeed(player)
 	local skinBoost = getSkinSpeedBoost(player)
 	local maxReal = getMaxRealSpeed(player)
 	maxRealStat.Value = maxReal
+	local potionMultiplier = (stats:FindFirstChild("SpeedPotionMultiplier") and stats.SpeedPotionMultiplier.Value) or 1
+	potionMultiplier = math.max(1, potionMultiplier)
+	local levelUpBoostEndTime = (stats:FindFirstChild("LevelUpSpeedBoostEndTime") and stats.LevelUpSpeedBoostEndTime.Value) or 0
+	local levelUpMultiplier = (levelUpBoostEndTime > tick()) and LEVEL_UP_SPEED_BOOST_MULTIPLIER or 1
 
 	local chosen
 	if useCustomSpeed.Value then
@@ -287,7 +562,7 @@ local function applyWalkSpeed(player)
 	if char then
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if hum then
-			hum.WalkSpeed = chosen
+			hum.WalkSpeed = chosen * potionMultiplier * levelUpMultiplier
 		end
 	end
 
@@ -363,9 +638,75 @@ local function createPlayerStats(player)
 	local maxRealValue = ensureValue(stats, "NumberValue", "MaxRealSpeed", BASE_REAL_SPEED)
 	local stepMultiplierValue = ensureValue(stats, "NumberValue", "StepMultiplier", 1)
 	local equippedStepOrderValue = ensureValue(stats, "IntValue", "EquippedStepOrder", 1)
+	local potionMultiplierValue = ensureValue(stats, "NumberValue", "SpeedPotionMultiplier", 1)
+	local potionEndTimeValue = ensureValue(stats, "NumberValue", "SpeedPotionEndTime", 0)
+	local potionNameValue = ensureValue(stats, "StringValue", "SpeedPotionName", "")
+	local speedPotionIconValue = ensureValue(stats, "StringValue", "SpeedPotionIcon", "")
+	local globalSpeedPotionMultiplierValue = ensureValue(stats, "NumberValue", "GlobalSpeedPotionMultiplier", 1)
+	local globalSpeedPotionEndTimeValue = ensureValue(stats, "NumberValue", "GlobalSpeedPotionEndTime", 0)
+	local globalSpeedPotionNameValue = ensureValue(stats, "StringValue", "GlobalSpeedPotionName", "")
+	local globalSpeedPotionIconValue = ensureValue(stats, "StringValue", "GlobalSpeedPotionIcon", "")
+	local expPotionMultiplierValue = ensureValue(stats, "NumberValue", "ExpPotionMultiplier", 1)
+	local expPotionEndTimeValue = ensureValue(stats, "NumberValue", "ExpPotionEndTime", 0)
+	local expPotionNameValue = ensureValue(stats, "StringValue", "ExpPotionName", "")
+	local expPotionIconValue = ensureValue(stats, "StringValue", "ExpPotionIcon", "")
+	local localExpPotionMultiplierValue = ensureValue(stats, "NumberValue", "LocalExpPotionMultiplier", 1)
+	local localExpPotionEndTimeValue = ensureValue(stats, "NumberValue", "LocalExpPotionEndTime", 0)
+	local localExpPotionNameValue = ensureValue(stats, "StringValue", "LocalExpPotionName", "")
+	local localExpPotionIconValue = ensureValue(stats, "StringValue", "LocalExpPotionIcon", "")
+	local globalExpPotionMultiplierValue = ensureValue(stats, "NumberValue", "GlobalExpPotionMultiplier", 1)
+	local globalExpPotionEndTimeValue = ensureValue(stats, "NumberValue", "GlobalExpPotionEndTime", 0)
+	local globalExpPotionNameValue = ensureValue(stats, "StringValue", "GlobalExpPotionName", "")
+	local globalExpPotionIconValue = ensureValue(stats, "StringValue", "GlobalExpPotionIcon", "")
+	local winsPotionMultiplierValue = ensureValue(stats, "NumberValue", "WinsPotionMultiplier", 1)
+	local winsPotionEndTimeValue = ensureValue(stats, "NumberValue", "WinsPotionEndTime", 0)
+	local winsPotionNameValue = ensureValue(stats, "StringValue", "WinsPotionName", "")
+	local winsPotionIconValue = ensureValue(stats, "StringValue", "WinsPotionIcon", "")
+	local localWinsPotionMultiplierValue = ensureValue(stats, "NumberValue", "LocalWinsPotionMultiplier", 1)
+	local localWinsPotionEndTimeValue = ensureValue(stats, "NumberValue", "LocalWinsPotionEndTime", 0)
+	local localWinsPotionNameValue = ensureValue(stats, "StringValue", "LocalWinsPotionName", "")
+	local localWinsPotionIconValue = ensureValue(stats, "StringValue", "LocalWinsPotionIcon", "")
+	local globalWinsPotionMultiplierValue = ensureValue(stats, "NumberValue", "GlobalWinsPotionMultiplier", 1)
+	local globalWinsPotionEndTimeValue = ensureValue(stats, "NumberValue", "GlobalWinsPotionEndTime", 0)
+	local globalWinsPotionNameValue = ensureValue(stats, "StringValue", "GlobalWinsPotionName", "")
+	local globalWinsPotionIconValue = ensureValue(stats, "StringValue", "GlobalWinsPotionIcon", "")
+	local levelUpSpeedBoostEndTimeValue = ensureValue(stats, "NumberValue", "LevelUpSpeedBoostEndTime", 0)
 	if maxRealValue.Value < BASE_REAL_SPEED then maxRealValue.Value = BASE_REAL_SPEED end
 	if stepMultiplierValue.Value < 1 then stepMultiplierValue.Value = 1 end
 	if equippedStepOrderValue.Value < 1 then equippedStepOrderValue.Value = 1 end
+	if potionMultiplierValue.Value < 1 then potionMultiplierValue.Value = 1 end
+	if potionEndTimeValue.Value < 0 then potionEndTimeValue.Value = 0 end
+	if potionNameValue.Value == nil then potionNameValue.Value = "" end
+	if speedPotionIconValue.Value == nil then speedPotionIconValue.Value = "" end
+	if globalSpeedPotionMultiplierValue.Value < 1 then globalSpeedPotionMultiplierValue.Value = 1 end
+	if globalSpeedPotionEndTimeValue.Value < 0 then globalSpeedPotionEndTimeValue.Value = 0 end
+	if globalSpeedPotionNameValue.Value == nil then globalSpeedPotionNameValue.Value = "" end
+	if globalSpeedPotionIconValue.Value == nil then globalSpeedPotionIconValue.Value = "" end
+	if expPotionMultiplierValue.Value < 1 then expPotionMultiplierValue.Value = 1 end
+	if expPotionEndTimeValue.Value < 0 then expPotionEndTimeValue.Value = 0 end
+	if expPotionNameValue.Value == nil then expPotionNameValue.Value = "" end
+	if expPotionIconValue.Value == nil then expPotionIconValue.Value = "" end
+	if localExpPotionMultiplierValue.Value < 1 then localExpPotionMultiplierValue.Value = 1 end
+	if localExpPotionEndTimeValue.Value < 0 then localExpPotionEndTimeValue.Value = 0 end
+	if localExpPotionNameValue.Value == nil then localExpPotionNameValue.Value = "" end
+	if localExpPotionIconValue.Value == nil then localExpPotionIconValue.Value = "" end
+	if globalExpPotionMultiplierValue.Value < 1 then globalExpPotionMultiplierValue.Value = 1 end
+	if globalExpPotionEndTimeValue.Value < 0 then globalExpPotionEndTimeValue.Value = 0 end
+	if globalExpPotionNameValue.Value == nil then globalExpPotionNameValue.Value = "" end
+	if globalExpPotionIconValue.Value == nil then globalExpPotionIconValue.Value = "" end
+	if winsPotionMultiplierValue.Value < 1 then winsPotionMultiplierValue.Value = 1 end
+	if winsPotionEndTimeValue.Value < 0 then winsPotionEndTimeValue.Value = 0 end
+	if winsPotionNameValue.Value == nil then winsPotionNameValue.Value = "" end
+	if winsPotionIconValue.Value == nil then winsPotionIconValue.Value = "" end
+	if localWinsPotionMultiplierValue.Value < 1 then localWinsPotionMultiplierValue.Value = 1 end
+	if localWinsPotionEndTimeValue.Value < 0 then localWinsPotionEndTimeValue.Value = 0 end
+	if localWinsPotionNameValue.Value == nil then localWinsPotionNameValue.Value = "" end
+	if localWinsPotionIconValue.Value == nil then localWinsPotionIconValue.Value = "" end
+	if globalWinsPotionMultiplierValue.Value < 1 then globalWinsPotionMultiplierValue.Value = 1 end
+	if globalWinsPotionEndTimeValue.Value < 0 then globalWinsPotionEndTimeValue.Value = 0 end
+	if globalWinsPotionNameValue.Value == nil then globalWinsPotionNameValue.Value = "" end
+	if globalWinsPotionIconValue.Value == nil then globalWinsPotionIconValue.Value = "" end
+	if levelUpSpeedBoostEndTimeValue.Value < 0 then levelUpSpeedBoostEndTimeValue.Value = 0 end
 
 	-- legacy values kept only so old scripts don't error
 	ensureValue(stats, "NumberValue", "ShopSpeedBonus", 0)
@@ -409,6 +750,18 @@ local function addExp(player, amount)
 		level.Value += 1
 		expRequired.Value = formatExpRequired(level.Value)
 		levelUps += 1
+	end
+
+	if levelUps > 0 then
+		local levelUpBoostEndTime = stats:FindFirstChild("LevelUpSpeedBoostEndTime")
+		if levelUpBoostEndTime then
+			levelUpBoostEndTime.Value = tick() + LEVEL_UP_SPEED_BOOST_DURATION
+			task.delay(LEVEL_UP_SPEED_BOOST_DURATION + 0.05, function()
+				if levelUpBoostEndTime.Parent and levelUpBoostEndTime.Value <= tick() then
+					applyWalkSpeed(player)
+				end
+			end)
+		end
 	end
 
 	applyWalkSpeed(player)
@@ -581,6 +934,7 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
 			confettiCount = 120,
 			soundId = "rbxassetid://1843520822",
 			iconKey = "Purchase",
+			scaleMultiplier = 1.8,
 		})
 	end
 end)
@@ -588,6 +942,15 @@ end)
 MarketplaceService.ProcessReceipt = function(receiptInfo)
 	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
 	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local potionConfig = POTION_PRODUCT_BY_ID[receiptInfo.ProductId]
+	if potionConfig then
+		local grantedPotion = grantPurchasablePotion(player, potionConfig)
+		if grantedPotion then
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
@@ -603,6 +966,7 @@ MarketplaceService.ProcessReceipt = function(receiptInfo)
 				confettiCount = 120,
 				soundId = "rbxassetid://1843520822",
 				iconKey = "Purchase",
+				scaleMultiplier = 1.8,
 			})
 			return Enum.ProductPurchaseDecision.PurchaseGranted
 		end
@@ -626,8 +990,8 @@ jumpRemote.OnServerEvent:Connect(function(player)
 	jumps.Value += 1
 
 	local rebirthMult, gamepassExpMult, titleMult, stepMult = getPlayerMultipliers(player)
-	local speedFactor = getSpeedExpFactor(player)
-	local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * speedFactor
+	local expPotionMult = getExpPotionMultiplier(player)
+	local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * expPotionMult
 
 	addExp(player, gain)
 	expPopupRemote:FireClient(player, math.floor(gain))
@@ -663,8 +1027,8 @@ surfaceInteractRemote.OnServerEvent:Connect(function(player, part, sourceType)
 
 	local partMult = part:GetAttribute("ExpMultiplier") or 1
 	local rebirthMult, gamepassExpMult, titleMult, stepMult = getPlayerMultipliers(player)
-	local speedFactor = getSpeedExpFactor(player)
-	local gain = baseExp * partMult * rebirthMult * gamepassExpMult * titleMult * stepMult * speedFactor
+	local expPotionMult = getExpPotionMultiplier(player)
+	local gain = baseExp * partMult * rebirthMult * gamepassExpMult * titleMult * stepMult * expPotionMult
 
 	addExp(player, gain)
 	expPopupRemote:FireClient(player, math.floor(gain))
@@ -709,8 +1073,8 @@ task.spawn(function()
 								root.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, bouncePower), v.Z)
 
 								local rebirthMult, gamepassExpMult, titleMult, stepMult = getPlayerMultipliers(plr)
-								local speedFactor = getSpeedExpFactor(plr)
-								local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * speedFactor * expMult
+								local expPotionMult = getExpPotionMultiplier(plr)
+								local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * expPotionMult * expMult
 
 								addExp(plr, gain)
 								expPopupRemote:FireClient(plr, math.floor(gain))
@@ -833,6 +1197,8 @@ local function setupWinPart(part)
 		if current > 0 then return end
 
 		local winsAmount = math.max(1, math.floor(part:GetAttribute("WinsAmount") or 1))
+		local winsPotionMult = getWinsPotionMultiplier(player)
+		winsAmount = math.max(1, math.floor(winsAmount * winsPotionMult + 0.5))
 		local cooldownSec = part:GetAttribute("WinsCooldown") or 0.5
 
 		winCooldown[player] = winCooldown[player] or {}
@@ -890,6 +1256,17 @@ for _, part in ipairs(CollectionService:GetTagged("StepMultiplierPad")) do
 end
 CollectionService:GetInstanceAddedSignal("StepMultiplierPad"):Connect(setupStepMultiplierPad)
 
+for _, obj in ipairs(workspace:GetDescendants()) do
+	if obj:IsA("ProximityPrompt") then
+		registerPotionPrompt(obj)
+	end
+end
+workspace.DescendantAdded:Connect(function(obj)
+	if obj:IsA("ProximityPrompt") then
+		registerPotionPrompt(obj)
+	end
+end)
+
 local function onPlayerAdded(player)
 	createPlayerStats(player)
 	refreshOwnedExpBoost(player)
@@ -899,6 +1276,9 @@ local function onPlayerAdded(player)
 	local stats = player:WaitForChild("Stats")
 
 	autoEquipHighestStepMultiplier(player, true)
+	refreshVisiblePotionState(player, "Speed")
+	refreshVisiblePotionState(player, "Exp")
+	refreshVisiblePotionState(player, "Wins")
 
 	leaderstats:WaitForChild("Level").Changed:Connect(function() applyWalkSpeed(player) end)
 	leaderstats:WaitForChild("Wins").Changed:Connect(function()
@@ -910,6 +1290,9 @@ local function onPlayerAdded(player)
 	stats:WaitForChild("SelectedRealSpeed").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("TitleMultiplier").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("StepMultiplier").Changed:Connect(function() applyWalkSpeed(player) end)
+	stats:WaitForChild("SpeedPotionMultiplier").Changed:Connect(function() applyWalkSpeed(player) end)
+	stats:WaitForChild("SpeedPotionEndTime").Changed:Connect(function() applyWalkSpeed(player) end)
+	stats:WaitForChild("LevelUpSpeedBoostEndTime").Changed:Connect(function() applyWalkSpeed(player) end)
 
 	player.CharacterAdded:Connect(function()
 		task.wait(0.2)
