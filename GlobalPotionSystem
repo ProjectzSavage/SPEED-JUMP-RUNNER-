@@ -1,0 +1,257 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MessagingService = game:GetService("MessagingService")
+
+local showNotificationRemote = ReplicatedStorage:FindFirstChild("ShowNotification")
+if not showNotificationRemote then
+	showNotificationRemote = Instance.new("RemoteEvent")
+	showNotificationRemote.Name = "ShowNotification"
+	showNotificationRemote.Parent = ReplicatedStorage
+end
+
+local potionBindable = ReplicatedStorage:FindFirstChild("GlobalPotionBindable")
+if not potionBindable then
+	potionBindable = Instance.new("BindableEvent")
+	potionBindable.Name = "GlobalPotionBindable"
+	potionBindable.Parent = ReplicatedStorage
+end
+
+local CHANNEL = "GlobalPotionSpawn_V3"
+local activePotions = {
+	Speed = nil,
+	Exp = nil,
+	Wins = nil,
+}
+
+local function ensureValue(parent, className, name, defaultValue)
+	local v = parent:FindFirstChild(name)
+	if not v then
+		v = Instance.new(className)
+		v.Name = name
+		v.Value = defaultValue
+		v.Parent = parent
+	end
+	return v
+end
+
+local function normalizeAssetId(value)
+	if value == nil then return "" end
+	local raw = tostring(value):gsub("%s+", "")
+	if raw == "" then return "" end
+	if raw:find("rbxassetid://", 1, true) then
+		return raw
+	end
+	local number = tonumber(raw:match("%d+"))
+	if number and number > 0 then
+		return "rbxassetid://" .. tostring(math.floor(number))
+	end
+	return raw
+end
+
+local function ensurePotionValues(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
+
+	ensureValue(stats, "NumberValue", "SpeedPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "SpeedPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "SpeedPotionName", "")
+	ensureValue(stats, "StringValue", "SpeedPotionIcon", "")
+	ensureValue(stats, "NumberValue", "GlobalSpeedPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "GlobalSpeedPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "GlobalSpeedPotionName", "")
+	ensureValue(stats, "StringValue", "GlobalSpeedPotionIcon", "")
+
+	ensureValue(stats, "NumberValue", "ExpPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "ExpPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "ExpPotionName", "")
+	ensureValue(stats, "StringValue", "ExpPotionIcon", "")
+	ensureValue(stats, "NumberValue", "LocalExpPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "LocalExpPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "LocalExpPotionName", "")
+	ensureValue(stats, "StringValue", "LocalExpPotionIcon", "")
+	ensureValue(stats, "NumberValue", "GlobalExpPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "GlobalExpPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "GlobalExpPotionName", "")
+	ensureValue(stats, "StringValue", "GlobalExpPotionIcon", "")
+
+	ensureValue(stats, "NumberValue", "WinsPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "WinsPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "WinsPotionName", "")
+	ensureValue(stats, "StringValue", "WinsPotionIcon", "")
+	ensureValue(stats, "NumberValue", "LocalWinsPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "LocalWinsPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "LocalWinsPotionName", "")
+	ensureValue(stats, "StringValue", "LocalWinsPotionIcon", "")
+	ensureValue(stats, "NumberValue", "GlobalWinsPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "GlobalWinsPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "GlobalWinsPotionName", "")
+	ensureValue(stats, "StringValue", "GlobalWinsPotionIcon", "")
+
+	return stats
+end
+
+local function refreshVisiblePotionState(player, potionType)
+	local stats = ensurePotionValues(player)
+	local now = os.time()
+
+	if potionType == "Exp" then
+		local useGlobal = stats.GlobalExpPotionEndTime.Value > now and stats.GlobalExpPotionMultiplier.Value >= stats.LocalExpPotionMultiplier.Value and stats.GlobalExpPotionMultiplier.Value > 1
+		local useLocal = stats.LocalExpPotionEndTime.Value > now and stats.LocalExpPotionMultiplier.Value > 1
+		if useGlobal then
+			stats.ExpPotionMultiplier.Value = stats.GlobalExpPotionMultiplier.Value
+			stats.ExpPotionEndTime.Value = stats.GlobalExpPotionEndTime.Value
+			stats.ExpPotionName.Value = stats.GlobalExpPotionName.Value
+			stats.ExpPotionIcon.Value = stats.GlobalExpPotionIcon.Value
+		elseif useLocal then
+			stats.ExpPotionMultiplier.Value = stats.LocalExpPotionMultiplier.Value
+			stats.ExpPotionEndTime.Value = stats.LocalExpPotionEndTime.Value
+			stats.ExpPotionName.Value = stats.LocalExpPotionName.Value
+			stats.ExpPotionIcon.Value = stats.LocalExpPotionIcon.Value
+		else
+			stats.ExpPotionMultiplier.Value = 1
+			stats.ExpPotionEndTime.Value = 0
+			stats.ExpPotionName.Value = ""
+			stats.ExpPotionIcon.Value = ""
+		end
+	elseif potionType == "Wins" then
+		local useGlobal = stats.GlobalWinsPotionEndTime.Value > now and stats.GlobalWinsPotionMultiplier.Value >= stats.LocalWinsPotionMultiplier.Value and stats.GlobalWinsPotionMultiplier.Value > 1
+		local useLocal = stats.LocalWinsPotionEndTime.Value > now and stats.LocalWinsPotionMultiplier.Value > 1
+		if useGlobal then
+			stats.WinsPotionMultiplier.Value = stats.GlobalWinsPotionMultiplier.Value
+			stats.WinsPotionEndTime.Value = stats.GlobalWinsPotionEndTime.Value
+			stats.WinsPotionName.Value = stats.GlobalWinsPotionName.Value
+			stats.WinsPotionIcon.Value = stats.GlobalWinsPotionIcon.Value
+		elseif useLocal then
+			stats.WinsPotionMultiplier.Value = stats.LocalWinsPotionMultiplier.Value
+			stats.WinsPotionEndTime.Value = stats.LocalWinsPotionEndTime.Value
+			stats.WinsPotionName.Value = stats.LocalWinsPotionName.Value
+			stats.WinsPotionIcon.Value = stats.LocalWinsPotionIcon.Value
+		else
+			stats.WinsPotionMultiplier.Value = 1
+			stats.WinsPotionEndTime.Value = 0
+			stats.WinsPotionName.Value = ""
+			stats.WinsPotionIcon.Value = ""
+		end
+	else
+		if stats.GlobalSpeedPotionEndTime.Value > now and stats.GlobalSpeedPotionMultiplier.Value > 1 then
+			stats.SpeedPotionMultiplier.Value = stats.GlobalSpeedPotionMultiplier.Value
+			stats.SpeedPotionEndTime.Value = stats.GlobalSpeedPotionEndTime.Value
+			stats.SpeedPotionName.Value = stats.GlobalSpeedPotionName.Value
+			stats.SpeedPotionIcon.Value = stats.GlobalSpeedPotionIcon.Value
+		else
+			stats.SpeedPotionMultiplier.Value = 1
+			stats.SpeedPotionEndTime.Value = 0
+			stats.SpeedPotionName.Value = ""
+			stats.SpeedPotionIcon.Value = ""
+		end
+	end
+end
+
+local function applyPotionToPlayer(player, potionType, potion)
+	local stats = ensurePotionValues(player)
+	local icon = normalizeAssetId(potion and potion.icon)
+
+	if potionType == "Exp" then
+		stats.GlobalExpPotionMultiplier.Value = potion and potion.multiplier or 1
+		stats.GlobalExpPotionEndTime.Value = potion and potion.endTime or 0
+		stats.GlobalExpPotionName.Value = potion and potion.name or ""
+		stats.GlobalExpPotionIcon.Value = icon
+	elseif potionType == "Wins" then
+		stats.GlobalWinsPotionMultiplier.Value = potion and potion.multiplier or 1
+		stats.GlobalWinsPotionEndTime.Value = potion and potion.endTime or 0
+		stats.GlobalWinsPotionName.Value = potion and potion.name or ""
+		stats.GlobalWinsPotionIcon.Value = icon
+	else
+		stats.GlobalSpeedPotionMultiplier.Value = potion and potion.multiplier or 1
+		stats.GlobalSpeedPotionEndTime.Value = potion and potion.endTime or 0
+		stats.GlobalSpeedPotionName.Value = potion and potion.name or ""
+		stats.GlobalSpeedPotionIcon.Value = icon
+	end
+
+	refreshVisiblePotionState(player, potionType)
+end
+
+local function announcePotion(potion)
+	local playerColor = potion.playerColor or "#FFD54A"
+	local potionColor = potion.potionColor or "#6CFF7A"
+	local spawnerName = potion.spawnerName or "Admin"
+	local potionName = potion.name or "Potion"
+
+	local message = string.format(
+		"<font color='%s'>%s</font> spawned <font color='%s'>%s</font>!",
+		playerColor,
+		spawnerName,
+		potionColor,
+		potionName
+	)
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		showNotificationRemote:FireClient(player, {
+			title = "GLOBAL POTION",
+			message = message,
+			kind = "Warning",
+			duration = 5,
+			richText = true,
+			userIconUserId = potion.spawnerUserId,
+			icon = potion.icon,
+			scaleMultiplier = 1.1,
+		})
+	end
+end
+
+local function startPotion(potion)
+	if typeof(potion) ~= "table" then return end
+	local potionType = tostring(potion.potionType or "Speed")
+	activePotions[potionType] = potion
+	announcePotion(potion)
+	for _, player in ipairs(Players:GetPlayers()) do
+		applyPotionToPlayer(player, potionType, potion)
+	end
+end
+
+potionBindable.Event:Connect(startPotion)
+
+Players.PlayerAdded:Connect(function(player)
+	ensurePotionValues(player)
+	for potionType, potion in pairs(activePotions) do
+		if potion and potion.endTime and potion.endTime > os.time() then
+			applyPotionToPlayer(player, potionType, potion)
+		end
+	end
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	ensurePotionValues(player)
+end
+
+task.spawn(function()
+	while true do
+		local now = os.time()
+		for potionType, potion in pairs(activePotions) do
+			if potion and potion.endTime and potion.endTime <= now then
+				activePotions[potionType] = nil
+				for _, player in ipairs(Players:GetPlayers()) do
+					applyPotionToPlayer(player, potionType, nil)
+				end
+			end
+		end
+		task.wait(1)
+	end
+end)
+
+local ok, err = pcall(function()
+	MessagingService:SubscribeAsync(CHANNEL, function(message)
+		local data = message.Data
+		if typeof(data) ~= "table" then return end
+		if data.originJobId == game.JobId then return end
+		startPotion(data.potion)
+	end)
+end)
+
+if not ok then
+	warn("[Potion] Failed to subscribe:", err)
+end
