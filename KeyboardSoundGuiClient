@@ -1,0 +1,215 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local SoundService = game:GetService("SoundService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local stats = player:WaitForChild("Stats")
+
+local equipKeyboardSoundRemote = ReplicatedStorage:WaitForChild("EquipKeyboardSound")
+local promptKeyboardSoundPackRemote = ReplicatedStorage:WaitForChild("PromptKeyboardSoundPackPurchase")
+
+local gui = playerGui:WaitForChild("KeyboardSoundGUI")
+local MainMenuButtonsGUI = playerGui:WaitForChild("MainMenuButtons")
+local toggleButton = MainMenuButtonsGUI:WaitForChild("Frame"):WaitForChild("SoundToggleButton")
+local mainFrame = gui:WaitForChild("MainFrame")
+local headerFrame = mainFrame:WaitForChild("HeaderFrame")
+local closeButton = headerFrame:WaitForChild("CloseButton")
+
+local freeSectionFrame = mainFrame:WaitForChild("FreeSectionFrame")
+local freeSoundsGrid = freeSectionFrame:WaitForChild("FreeSoundsGrid")
+local equippedLabel = freeSectionFrame:WaitForChild("EquippedLabel")
+
+local premiumSectionFrame = mainFrame:WaitForChild("PremiumSectionFrame")
+local premiumSoundsGrid = premiumSectionFrame:WaitForChild("PremiumSoundsGrid")
+local lockOverlay = premiumSectionFrame:WaitForChild("LockOverlay")
+local buyGamepassButton = lockOverlay:WaitForChild("BuyGamepassButton")
+local premiumStatusLabel = premiumSectionFrame:WaitForChild("PremiumStatusLabel")
+
+local keyboardSoundId = stats:WaitForChild("KeyboardSoundId")
+local keyboardSoundName = stats:WaitForChild("KeyboardSoundName")
+local hasPremium = stats:WaitForChild("HasPremiumKeyboardSounds")
+
+local FREE_SOUNDS = {
+	{ button = "FreeSound1Button", key = "Clicky", name = "Clicky", soundId = "rbxassetid://114199161794870" },
+	{ button = "FreeSound2Button", key = "Clacky", name = "Clacky", soundId = "rbxassetid://85325150764749" },
+	{ button = "FreeSound3Button", key = "Soft", name = "Soft", soundId = "rbxassetid://129156310772034" },
+}
+
+local PREMIUM_SOUNDS = {
+	{ button = "PremiumSound1Button", key = "Sand", name = "Sand", soundId = "rbxassetid://137121821978934" },
+	{ button = "PremiumSound2Button", key = "Grass", name = "Grass", soundId = "rbxassetid://113282378525952" },
+	{ button = "PremiumSound3Button", key = "Fire", name = "Fire", soundId = "rbxassetid://120809379143404" },
+	{ button = "PremiumSound4Button", key = "Feather", name = "Feather", soundId = "rbxassetid://108255989462426" },
+	{ button = "PremiumSound5Button", key = "Crunchy", name = "Crunchy", soundId = "rbxassetid://120350074662005" },
+	{ button = "PremiumSound6Button", key = "Creamy", name = "Creamy", soundId = "rbxassetid://129816791116254" },
+	{ button = "PremiumSound7Button", key = "Cloud", name = "Cloud", soundId = "rbxassetid://139585534938632" },
+}
+
+local openPos = mainFrame.Position
+local closedPos = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale + 0.06, openPos.Y.Offset)
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+local animating = false
+mainFrame.Visible = false
+
+local function previewSound(soundId)
+	local sound = Instance.new("Sound")
+	sound.SoundId = soundId
+	sound.Volume = 0.65
+	sound.Parent = SoundService
+	sound:Play()
+	sound.Ended:Connect(function()
+		sound:Destroy()
+	end)
+	task.delay(2, function()
+		if sound and sound.Parent then
+			sound:Destroy()
+		end
+	end)
+end
+
+local function setButtonVisual(button, selected, locked)
+	if button:IsA("ImageButton") then
+		button.AutoButtonColor = not locked
+		if locked then
+			button.ImageColor3 = Color3.fromRGB(150, 150, 150)
+		else
+			button.ImageColor3 = Color3.fromRGB(255, 255, 255)
+		end
+	end
+
+	local stroke = button:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		if selected then
+			stroke.Color = Color3.fromRGB(255, 255, 255)
+			stroke.Thickness = 4
+			stroke.Transparency = 0
+		elseif locked then
+			stroke.Color = Color3.fromRGB(90, 90, 90)
+			stroke.Thickness = 2
+			stroke.Transparency = 0.25
+		else
+			stroke.Color = Color3.fromRGB(50, 30, 10)
+			stroke.Thickness = 2
+			stroke.Transparency = 0
+		end
+	end
+end
+
+local function updateButtonSet(parent, defs, lockedByPremium)
+	for _, def in ipairs(defs) do
+		local button = parent:WaitForChild(def.button)
+		local nameLabel = button:FindFirstChild("NameLabel")
+		if nameLabel then
+			nameLabel.Text = string.upper(def.name)
+		end
+
+		local locked = lockedByPremium and not hasPremium.Value
+		local selected = keyboardSoundName.Value == def.name or keyboardSoundId.Value == def.soundId
+		setButtonVisual(button, selected, locked)
+	end
+end
+
+local function updateGuiState()
+	equippedLabel.Text = "Equipped: " .. keyboardSoundName.Value
+	premiumStatusLabel.Text = hasPremium.Value and "Unlocked" or "Locked"
+	lockOverlay.Visible = not hasPremium.Value
+
+	updateButtonSet(freeSoundsGrid, FREE_SOUNDS, false)
+	updateButtonSet(premiumSoundsGrid, PREMIUM_SOUNDS, true)
+end
+
+local function connectSoundButtons(parent, defs, premiumLocked)
+	for _, def in ipairs(defs) do
+		local button = parent:WaitForChild(def.button)
+		button.MouseButton1Click:Connect(function()
+			if premiumLocked and not hasPremium.Value then
+				promptKeyboardSoundPackRemote:FireServer()
+				return
+			end
+			previewSound(def.soundId)
+			equipKeyboardSoundRemote:FireServer(def.key)
+		end)
+	end
+end
+
+local function openFrame()
+	if animating or mainFrame.Visible then return end
+	animating = true
+	updateGuiState()
+	mainFrame.Visible = true
+	mainFrame.Position = closedPos
+	uiScale.Scale = 0.94
+
+	TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = openPos,
+	}):Play()
+	TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	}):Play()
+
+	task.delay(0.24, function()
+		animating = false
+	end)
+end
+
+local function closeFrame()
+	if animating or not mainFrame.Visible then return end
+	animating = true
+
+	TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = closedPos,
+	}):Play()
+	TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Scale = 0.94,
+	}):Play()
+
+	task.delay(0.19, function()
+		mainFrame.Visible = false
+		mainFrame.Position = openPos
+		uiScale.Scale = 1
+		animating = false
+	end)
+end
+
+connectSoundButtons(freeSoundsGrid, FREE_SOUNDS, false)
+connectSoundButtons(premiumSoundsGrid, PREMIUM_SOUNDS, true)
+
+buyGamepassButton.MouseButton1Click:Connect(function()
+	promptKeyboardSoundPackRemote:FireServer()
+end)
+
+toggleButton.MouseButton1Click:Connect(function()
+	if mainFrame.Visible then
+		closeFrame()
+	else
+		openFrame()
+	end
+end)
+
+closeButton.MouseButton1Click:Connect(closeFrame)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.K then
+		if mainFrame.Visible then
+			closeFrame()
+		else
+			openFrame()
+		end
+	end
+end)
+
+keyboardSoundId.Changed:Connect(updateGuiState)
+keyboardSoundName.Changed:Connect(updateGuiState)
+hasPremium.Changed:Connect(updateGuiState)
+
+updateGuiState()
