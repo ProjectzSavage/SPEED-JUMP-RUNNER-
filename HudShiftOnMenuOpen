@@ -14,6 +14,7 @@ local trackedMenus = {
 	{ guiName = "RebirthGUI", frameName = "MainFrame" },
 	{ guiName = "TitleGUI", frameName = "MainFrame" },
 	{ guiName = "SkinGUI", frameName = "MainFrame" },
+	{ guiName = "KeyboardSoundGUI", frameName = "MainFrame" },
 }
 
 local targets = {}
@@ -62,6 +63,7 @@ local function rebuildTargets()
 		registerTarget(hudMain:FindFirstChild("GamepassMultLabel"))
 		registerTarget(hudMain:FindFirstChild("SkinBoostLabel"))
 		registerTarget(hudMain:FindFirstChild("RebirthMultLabel"))
+		registerTarget(hudMain:FindFirstChild("AutoJumpButton"))
 		registerTarget(hudMain:FindFirstChild("LeftIconFrame", true))
 		registerTarget(hudMain:FindFirstChild("LevelLabel", true))
 		registerTarget(hudMain:FindFirstChild("ExpLabel", true))
