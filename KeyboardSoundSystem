@@ -1,0 +1,218 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local DEFAULT_KEYBOARD_SOUND_ID = "rbxassetid://125615721658437"
+local DEFAULT_KEYBOARD_SOUND_NAME = "Clicky"
+local DEFAULT_BUBBLE_SOUND_ID = "rbxassetid://140323850218372"
+
+local PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID = 1883716978 -- replace with your gamepass id
+
+local function getOrCreateRemote(name)
+	local remote = ReplicatedStorage:FindFirstChild(name)
+	if not remote then
+		remote = Instance.new("RemoteEvent")
+		remote.Name = name
+		remote.Parent = ReplicatedStorage
+	end
+	return remote
+end
+
+local equipKeyboardSoundRemote = getOrCreateRemote("EquipKeyboardSound")
+local promptKeyboardSoundPackRemote = getOrCreateRemote("PromptKeyboardSoundPackPurchase")
+local showNotificationRemote = getOrCreateRemote("ShowNotification")
+
+local KEYBOARD_SOUND_LIBRARY = {
+	Clicky = {
+		name = "Clicky",
+		soundId = "rbxassetid://114199161794870",
+		premium = false,
+	},
+	Clacky = {
+		name = "Clacky",
+		soundId = "rbxassetid://85325150764749",
+		premium = false,
+	},
+	Soft = {
+		name = "Soft",
+		soundId = "rbxassetid://129156310772034",
+		premium = false,
+	},
+
+	Sand = {
+		name = "Sand",
+		soundId = "rbxassetid://137121821978934",
+		premium = true,
+	},
+	Grass = {
+		name = "Grass",
+		soundId = "rbxassetid://113282378525952",
+		premium = true,
+	},
+	Fire = {
+		name = "Fire",
+		soundId = "rbxassetid://120809379143404",
+		premium = true,
+	},
+	Feather = {
+		name = "Feather",
+		soundId = "rbxassetid://108255989462426",
+		premium = true,
+	},
+	Crunchy = {
+		name = "Crunchy",
+		soundId = "rbxassetid://120350074662005",
+		premium = true,
+	},
+	Creamy = {
+		name = "Creamy",
+		soundId = "rbxassetid://129816791116254",
+		premium = true,
+	},
+	Cloud = {
+		name = "Cloud",
+		soundId = "rbxassetid://139585534938632",
+		premium = true,
+	},
+}
+
+local function notifyPlayer(player, title, message, kind, duration, extra)
+	local payload = {
+		title = title,
+		message = message,
+		kind = kind or "Info",
+		duration = duration or 3.5,
+	}
+	if type(extra) == "table" then
+		for k, v in pairs(extra) do
+			payload[k] = v
+		end
+	end
+	showNotificationRemote:FireClient(player, payload)
+end
+
+local function ensureKeyboardSoundStats(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
+
+	local keyboardSoundId = stats:FindFirstChild("KeyboardSoundId")
+	if not keyboardSoundId then
+		keyboardSoundId = Instance.new("StringValue")
+		keyboardSoundId.Name = "KeyboardSoundId"
+		keyboardSoundId.Value = DEFAULT_KEYBOARD_SOUND_ID
+		keyboardSoundId.Parent = stats
+	end
+
+	local keyboardSoundName = stats:FindFirstChild("KeyboardSoundName")
+	if not keyboardSoundName then
+		keyboardSoundName = Instance.new("StringValue")
+		keyboardSoundName.Name = "KeyboardSoundName"
+		keyboardSoundName.Value = DEFAULT_KEYBOARD_SOUND_NAME
+		keyboardSoundName.Parent = stats
+	end
+
+	local bubbleSoundId = stats:FindFirstChild("BubbleSoundId")
+	if not bubbleSoundId then
+		bubbleSoundId = Instance.new("StringValue")
+		bubbleSoundId.Name = "BubbleSoundId"
+		bubbleSoundId.Value = DEFAULT_BUBBLE_SOUND_ID
+		bubbleSoundId.Parent = stats
+	end
+
+	local hasPremium = stats:FindFirstChild("HasPremiumKeyboardSounds")
+	if not hasPremium then
+		hasPremium = Instance.new("BoolValue")
+		hasPremium.Name = "HasPremiumKeyboardSounds"
+		hasPremium.Value = false
+		hasPremium.Parent = stats
+	end
+
+	return stats, keyboardSoundId, keyboardSoundName, bubbleSoundId, hasPremium
+end
+
+local function refreshPremiumOwnership(player)
+	local _, _, _, _, hasPremium = ensureKeyboardSoundStats(player)
+	if PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID <= 0 then
+		return
+	end
+
+	local ok, owns = pcall(function()
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID)
+	end)
+	if ok then
+		hasPremium.Value = owns
+	end
+end
+
+local function canEquipSound(player, soundKey)
+	local soundInfo = KEYBOARD_SOUND_LIBRARY[soundKey]
+	if not soundInfo then
+		return false, nil
+	end
+
+	local _, _, _, _, hasPremium = ensureKeyboardSoundStats(player)
+	if soundInfo.premium and not hasPremium.Value then
+		return false, soundInfo
+	end
+
+	return true, soundInfo
+end
+
+equipKeyboardSoundRemote.OnServerEvent:Connect(function(player, soundKey)
+	if typeof(soundKey) ~= "string" then return end
+
+	local canEquip, soundInfo = canEquipSound(player, soundKey)
+	if not soundInfo then return end
+
+	if not canEquip then
+		notifyPlayer(player, "Locked", "Unlock the premium sound pack first.", "Warning", 3.2)
+		if PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID > 0 then
+			MarketplaceService:PromptGamePassPurchase(player, PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID)
+		end
+		return
+	end
+
+	local _, keyboardSoundId, keyboardSoundName = ensureKeyboardSoundStats(player)
+	keyboardSoundId.Value = soundInfo.soundId
+	keyboardSoundName.Value = soundInfo.name
+
+	notifyPlayer(player, "Keyboard Sound Equipped", soundInfo.name .. " equipped.", "Success", 3.2)
+end)
+
+promptKeyboardSoundPackRemote.OnServerEvent:Connect(function(player)
+	if PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID <= 0 then
+		warn("Missing PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID in KeyboardSoundSystem_server_final.lua")
+		return
+	end
+	MarketplaceService:PromptGamePassPurchase(player, PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID)
+end)
+
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
+	if gamePassId ~= PREMIUM_KEYBOARD_SOUNDS_GAMEPASS_ID then return end
+	refreshPremiumOwnership(player)
+	if wasPurchased then
+		notifyPlayer(player, "THANK YOU!", "Premium keyboard sounds unlocked!", "Info", 4.5, {
+			rainbowTitle = true,
+			confetti = true,
+			confettiCount = 90,
+			iconKey = "Purchase",
+			scaleMultiplier = 1.6,
+		})
+	end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	ensureKeyboardSoundStats(player)
+	refreshPremiumOwnership(player)
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(function()
+		ensureKeyboardSoundStats(player)
+		refreshPremiumOwnership(player)
+	end)
+end
