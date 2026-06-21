@@ -24,6 +24,7 @@ local trackedGuiFrames = {
 	{ guiName = "TitleGUI", frameName = "MainFrame" },
 	{ guiName = "RebirthGUI", frameName = "MainFrame" },
 	{ guiName = "SpeedShopGUI", frameName = "ShopFrame" },
+	{ guiName = "KeyboardSoundGUI", frameName = "MainFrame" },
 }
 
 local blur = Lighting:FindFirstChild("GuiFocusBlur")
