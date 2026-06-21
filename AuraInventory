@@ -1,0 +1,261 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local stats = player:WaitForChild("Stats")
+local leaderstats = player:WaitForChild("leaderstats")
+
+local equipAuraRemote = ReplicatedStorage:WaitForChild("EquipAura")
+local promptAuraPurchaseRemote = ReplicatedStorage:WaitForChild("PromptAuraPurchase")
+
+local mainMenuButtons = playerGui:WaitForChild("MainMenuButtons")
+local toggleButton = mainMenuButtons:FindFirstChild("InventoryToggleButton", true) or mainMenuButtons:FindFirstChild("ToggleButton", true)
+if not toggleButton then
+	error("Inventory toggle button not found inside MainMenuButtons GUI")
+end
+
+local gui = playerGui:WaitForChild("InventoryGUI")
+local mainFrame = gui:WaitForChild("MainFrame")
+local headerFrame = mainFrame:WaitForChild("HeaderFrame")
+local closeButton = headerFrame:WaitForChild("CloseButton")
+local categoryBar = mainFrame:WaitForChild("CategoryBar")
+local aurasTabButton = categoryBar:FindFirstChild("AurasTabButton")
+local trailsTabButton = categoryBar:FindFirstChild("TrailsTabButton")
+local itemsTabButton = categoryBar:FindFirstChild("ItemsTabButton")
+local contentFrame = mainFrame:WaitForChild("ContentFrame")
+local aurasPage = contentFrame:WaitForChild("AurasPage")
+local trailsPage = contentFrame:FindFirstChild("TrailsPage")
+local itemsPage = contentFrame:FindFirstChild("ItemsPage")
+local template = aurasPage:WaitForChild("AuraCardTemplate")
+
+template.Visible = false
+if trailsPage then trailsPage.Visible = false end
+if itemsPage then itemsPage.Visible = false end
+
+local currentAura = stats:WaitForChild("CurrentAura")
+local ownedAuras = stats:WaitForChild("OwnedAuras")
+
+local AURAS = {
+	{
+		key = "Glow",
+		name = "Glow Aura",
+		boost = 1.2,
+		winsRequired = 0,
+		productId = 0,
+		robuxPrice = nil,
+		previewImage = "",
+	},
+	{
+		key = "Wind",
+		name = "Wind Aura",
+		boost = 1.5,
+		winsRequired = 5000000,
+		productId = 0,
+		robuxPrice = 249,
+		previewImage = "",
+	},
+	{
+		key = "Water",
+		name = "Water Aura",
+		boost = 2.0,
+		winsRequired = 10000000,
+		productId = 0,
+		robuxPrice = 489,
+		previewImage = "",
+	},
+}
+
+local openPos = mainFrame.Position
+local closedPos = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale + 0.06, openPos.Y.Offset)
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+local animating = false
+mainFrame.Visible = false
+
+local function formatNumber(n)
+	n = tonumber(n) or 0
+	if n >= 1e12 then return string.format("%.2fT", n / 1e12) end
+	if n >= 1e9 then return string.format("%.2fB", n / 1e9) end
+	if n >= 1e6 then return string.format("%.2fM", n / 1e6) end
+	if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
+	return tostring(math.floor(n))
+end
+
+local function ownsAura(aura)
+	local wins = leaderstats:FindFirstChild("Wins")
+	local winsUnlocked = wins and wins.Value >= aura.winsRequired
+	local purchasedValue = ownedAuras:FindFirstChild(aura.key)
+	local purchased = purchasedValue and purchasedValue.Value == true
+	return winsUnlocked or purchased, winsUnlocked, purchased
+end
+
+local function setCategory(tab)
+	aurasPage.Visible = tab == "Auras"
+	if trailsPage then trailsPage.Visible = tab == "Trails" end
+	if itemsPage then itemsPage.Visible = tab == "Items" end
+end
+
+local function styleActionButton(button, text, color)
+	button.Text = text
+	button.BackgroundColor3 = color
+end
+
+local function updateAuraPage()
+	for _, child in ipairs(aurasPage:GetChildren()) do
+		if child:IsA("Frame") and child ~= template then
+			child:Destroy()
+		end
+	end
+
+	for index, aura in ipairs(AURAS) do
+		local card = template:Clone()
+		card.Name = "AuraCard_" .. aura.key
+		card.Visible = true
+		card.LayoutOrder = index
+		card.Parent = aurasPage
+
+		local previewImage = card:WaitForChild("PreviewImage")
+		local nameLabel = card:WaitForChild("NameLabel")
+		local boostLabel = card:WaitForChild("BoostLabel")
+		local requirementFrame = card:WaitForChild("RequirementFrame")
+		local requirementLabel = requirementFrame:WaitForChild("RequirementLabel")
+		local robuxLabel = requirementFrame:WaitForChild("RobuxLabel")
+
+		nameLabel.Text = aura.name
+		boostLabel.Text = "x" .. string.format("%.1f", aura.boost) .. " Speed Boost"
+		previewImage.Image = aura.previewImage or ""
+
+		local owned, winsUnlocked, purchased = ownsAura(aura)
+		local equipped = currentAura.Value == aura.key
+
+		if equipped then
+			styleActionButton(requirementLabel, "Equipped", Color3.fromRGB(190, 70, 70))
+			styleActionButton(robuxLabel, "Equipped", Color3.fromRGB(190, 70, 70))
+		elseif owned then
+			styleActionButton(requirementLabel, "Equip", Color3.fromRGB(70, 190, 80))
+			styleActionButton(robuxLabel, "Equip", Color3.fromRGB(70, 190, 80))
+		else
+			styleActionButton(requirementLabel, formatNumber(aura.winsRequired), Color3.fromRGB(70, 170, 220))
+			if aura.robuxPrice then
+				styleActionButton(robuxLabel, tostring(aura.robuxPrice), Color3.fromRGB(170, 80, 220))
+			else
+				styleActionButton(robuxLabel, "N/A", Color3.fromRGB(110, 110, 110))
+			end
+		end
+
+		requirementLabel.MouseButton1Click:Connect(function()
+			if equipped then
+				equipAuraRemote:FireServer("None")
+			elseif owned then
+				equipAuraRemote:FireServer(aura.key)
+			end
+		end)
+
+		robuxLabel.MouseButton1Click:Connect(function()
+			if equipped then
+				equipAuraRemote:FireServer("None")
+			elseif owned then
+				equipAuraRemote:FireServer(aura.key)
+			elseif aura.productId and aura.productId > 0 then
+				promptAuraPurchaseRemote:FireServer(aura.key)
+			end
+		end)
+	end
+
+	local layout = aurasPage:FindFirstChildOfClass("UIListLayout")
+	if aurasPage:IsA("ScrollingFrame") and layout then
+		task.defer(function()
+			aurasPage.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 12)
+		end)
+	end
+end
+
+local function openFrame()
+	if animating or mainFrame.Visible then return end
+	animating = true
+	setCategory("Auras")
+	updateAuraPage()
+	mainFrame.Visible = true
+	mainFrame.Position = closedPos
+	uiScale.Scale = 0.94
+
+	TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = openPos,
+	}):Play()
+	TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	}):Play()
+
+	task.delay(0.24, function()
+		animating = false
+	end)
+end
+
+local function closeFrame()
+	if animating or not mainFrame.Visible then return end
+	animating = true
+	TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = closedPos,
+	}):Play()
+	TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Scale = 0.94,
+	}):Play()
+	task.delay(0.19, function()
+		mainFrame.Visible = false
+		mainFrame.Position = openPos
+		uiScale.Scale = 1
+		animating = false
+	end)
+end
+
+toggleButton.MouseButton1Click:Connect(function()
+	if mainFrame.Visible then
+		closeFrame()
+	else
+		openFrame()
+	end
+end)
+
+closeButton.MouseButton1Click:Connect(closeFrame)
+if aurasTabButton then aurasTabButton.MouseButton1Click:Connect(function() setCategory("Auras") end) end
+if trailsTabButton then trailsTabButton.MouseButton1Click:Connect(function() setCategory("Trails") end) end
+if itemsTabButton then itemsTabButton.MouseButton1Click:Connect(function() setCategory("Items") end) end
+
+currentAura.Changed:Connect(function()
+	if mainFrame.Visible then
+		updateAuraPage()
+	end
+end)
+leaderstats:WaitForChild("Wins").Changed:Connect(function()
+	if mainFrame.Visible then
+		updateAuraPage()
+	end
+end)
+for _, value in ipairs(ownedAuras:GetChildren()) do
+	if value:IsA("BoolValue") then
+		value.Changed:Connect(function()
+			if mainFrame.Visible then
+				updateAuraPage()
+			end
+		end)
+	end
+end
+ownedAuras.ChildAdded:Connect(function(value)
+	if value:IsA("BoolValue") then
+		value.Changed:Connect(function()
+			if mainFrame.Visible then
+				updateAuraPage()
+			end
+		end)
+	end
+end)
+
+setCategory("Auras")
+updateAuraPage()
