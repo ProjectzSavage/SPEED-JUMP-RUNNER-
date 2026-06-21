@@ -17,9 +17,9 @@ local TITLES = {
 }
 
 local equipTitleRemote = ReplicatedStorage:WaitForChild("EquipTitle")
-
 local titleGUI = playerGui:WaitForChild("TitleGUI")
-local toggleButton = titleGUI:WaitForChild("ToggleButton")
+local MainMenuButtonsGUI = playerGui:WaitForChild("MainMenuButtons")
+local toggleButton = MainMenuButtonsGUI:WaitForChild("Frame"):WaitForChild("TitleToggleButton")
 local mainFrame = titleGUI:WaitForChild("MainFrame")
 local titleList = mainFrame:WaitForChild("TitleList")
 local closeButton = mainFrame:WaitForChild("CloseButton")
