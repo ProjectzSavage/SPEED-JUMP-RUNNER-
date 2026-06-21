@@ -15,7 +15,8 @@ local SKINS = {
 }
 
 local skinGUI = playerGui:WaitForChild("SkinGUI")
-local toggleButton = skinGUI:WaitForChild("ToggleButton")
+local MainMenuButtonsGUI = playerGui:WaitForChild("MainMenuButtons")
+local toggleButton = MainMenuButtonsGUI:WaitForChild("Frame"):WaitForChild("SkinToggleButton")
 local mainFrame = skinGUI:WaitForChild("MainFrame")
 local skinList = mainFrame:WaitForChild("SkinList")
 local closeButton = mainFrame:WaitForChild("CloseButton")
