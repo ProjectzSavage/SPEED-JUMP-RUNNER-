@@ -1,41 +1,57 @@
 local Players = game:GetService("Players")
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-wait(3)
-
 local guiList = {
-	{name = "RebirthGUI", frame = "MainFrame"},
-	{name = "TitleGUI", frame = "MainFrame"},
-	{name = "SkinGUI", frame = "MainFrame"},
-	{name = "SpeedShopGUI", frame = "ShopFrame"},
+	{ name = "RebirthGUI", frame = "MainFrame" },
+	{ name = "TitleGUI", frame = "MainFrame" },
+	{ name = "SkinGUI", frame = "MainFrame" },
+	{ name = "KeyboardSoundGUI", frame = "MainFrame" },
+	{ name = "InventoryGUI", frame = "MainFrame" },
 }
 
-local function closeAllGUIs(except)
-	for _, guiData in pairs(guiList) do
-		if guiData.name ~= except then
-			local gui = playerGui:FindFirstChild(guiData.name)
-			if gui then
-				local frame = gui:FindFirstChild(guiData.frame)
-				if frame then
+local function getFrame(guiName, frameName)
+	local gui = playerGui:FindFirstChild(guiName)
+	if not gui then return nil end
+	if not frameName then return nil end
+	local frame = gui:FindFirstChild(frameName)
+	if frame and frame:IsA("GuiObject") then
+		return frame
+	end
+	return nil
+end
+
+local function closeAllGUIs(exceptName)
+	for _, guiData in ipairs(guiList) do
+		if guiData.name ~= exceptName then
+			local frame = getFrame(guiData.name, guiData.frame)
+			if frame then
+				pcall(function()
 					frame.Visible = false
-				end
+				end)
 			end
 		end
 	end
 end
 
-for _, guiData in pairs(guiList) do
-	local gui = playerGui:FindFirstChild(guiData.name)
-	if gui then
-		local frame = gui:FindFirstChild(guiData.frame)
-		if frame then
-			frame:GetPropertyChangedSignal("Visible"):Connect(function()
-				if frame.Visible then
-					closeAllGUIs(guiData.name)
-				end
-			end)
-			
+local function connectGui(guiData)
+	local frame = getFrame(guiData.name, guiData.frame)
+	if not frame then return end
+
+	frame:GetPropertyChangedSignal("Visible"):Connect(function()
+		if frame.Visible then
+			closeAllGUIs(guiData.name)
 		end
-	end
+	end)
 end
+
+for _, guiData in ipairs(guiList) do
+	task.defer(connectGui, guiData)
+end
+
+playerGui.ChildAdded:Connect(function()
+	for _, guiData in ipairs(guiList) do
+		task.defer(connectGui, guiData)
+	end
+end)
