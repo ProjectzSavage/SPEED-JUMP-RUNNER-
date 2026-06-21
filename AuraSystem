@@ -1,0 +1,261 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local function getOrCreateRemote(name)
+	local remote = ReplicatedStorage:FindFirstChild(name)
+	if not remote then
+		remote = Instance.new("RemoteEvent")
+		remote.Name = name
+		remote.Parent = ReplicatedStorage
+	end
+	return remote
+end
+
+local equipAuraRemote = getOrCreateRemote("EquipAura")
+local promptAuraPurchaseRemote = getOrCreateRemote("PromptAuraPurchase")
+local showNotificationRemote = getOrCreateRemote("ShowNotification")
+
+local auraFolder = ReplicatedStorage:WaitForChild("AuraVFX")
+
+local AURAS = {
+	Glow = {
+		key = "Glow",
+		name = "Glow Aura",
+		boost = 1.2,
+		winsRequired = 0,
+		productId = 0,
+		robuxPrice = nil,
+		previewImage = "",
+		templateName = "GlowAura",
+	},
+	Wind = {
+		key = "Wind",
+		name = "Wind Aura",
+		boost = 1.5,
+		winsRequired = 5000000,
+		productId = 0,
+		robuxPrice = 249,
+		previewImage = "",
+		templateName = "WindAura",
+	},
+	Water = {
+		key = "Water",
+		name = "Water Aura",
+		boost = 2.0,
+		winsRequired = 10000000,
+		productId = 0,
+		robuxPrice = 489,
+		previewImage = "",
+		templateName = "WaterAura",
+	},
+}
+
+local AURA_BY_PRODUCT_ID = {}
+for _, aura in pairs(AURAS) do
+	if aura.productId and aura.productId > 0 then
+		AURA_BY_PRODUCT_ID[aura.productId] = aura
+	end
+end
+
+local function notifyPlayer(player, title, message, kind, duration, extra)
+	local payload = {
+		title = title,
+		message = message,
+		kind = kind or "Info",
+		duration = duration or 3.5,
+	}
+	if type(extra) == "table" then
+		for k, v in pairs(extra) do
+			payload[k] = v
+		end
+	end
+	showNotificationRemote:FireClient(player, payload)
+end
+
+local function ensureAuraStats(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
+
+	local currentAura = stats:FindFirstChild("CurrentAura")
+	if not currentAura then
+		currentAura = Instance.new("StringValue")
+		currentAura.Name = "CurrentAura"
+		currentAura.Value = "None"
+		currentAura.Parent = stats
+	end
+
+	local auraMultiplier = stats:FindFirstChild("AuraMultiplier")
+	if not auraMultiplier then
+		auraMultiplier = Instance.new("NumberValue")
+		auraMultiplier.Name = "AuraMultiplier"
+		auraMultiplier.Value = 1
+		auraMultiplier.Parent = stats
+	end
+
+	local ownedAuras = stats:FindFirstChild("OwnedAuras")
+	if not ownedAuras then
+		ownedAuras = Instance.new("Folder")
+		ownedAuras.Name = "OwnedAuras"
+		ownedAuras.Parent = stats
+	end
+
+	for auraKey in pairs(AURAS) do
+		local owned = ownedAuras:FindFirstChild(auraKey)
+		if not owned then
+			owned = Instance.new("BoolValue")
+			owned.Name = auraKey
+			owned.Value = false
+			owned.Parent = ownedAuras
+		end
+	end
+
+	return stats, currentAura, auraMultiplier, ownedAuras
+end
+
+local function clearAura(character)
+	for _, obj in ipairs(character:GetDescendants()) do
+		if obj:IsA("ParticleEmitter") and obj:GetAttribute("EquippedAuraEmitter") == true then
+			obj:Destroy()
+		end
+	end
+end
+
+local function applyAuraToCharacter(player, auraKey)
+	local auraData = AURAS[auraKey]
+	local character = player.Character
+	if not auraData or not character then return false end
+
+	local template = auraFolder:FindFirstChild(auraData.templateName)
+	if not template or not template:IsA("Model") then
+		warn("[AuraSystem] Missing aura template model:", auraData.templateName)
+		return false
+	end
+
+	clearAura(character)
+
+	for _, auraPart in ipairs(template:GetChildren()) do
+		if auraPart:IsA("BasePart") then
+			local characterPart = character:FindFirstChild(auraPart.Name)
+			if characterPart and characterPart:IsA("BasePart") then
+				for _, child in ipairs(auraPart:GetChildren()) do
+					if child:IsA("ParticleEmitter") then
+						local clone = child:Clone()
+						clone:SetAttribute("EquippedAuraEmitter", true)
+						clone.Parent = characterPart
+					end
+				end
+			end
+		end
+	end
+
+	return true
+end
+
+local function ownsAura(player, auraKey)
+	local stats = player:FindFirstChild("Stats")
+	local ownedAuras = stats and stats:FindFirstChild("OwnedAuras")
+	local ownedValue = ownedAuras and ownedAuras:FindFirstChild(auraKey)
+	local aura = AURAS[auraKey]
+	if not aura then return false end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+	local unlockedByWins = wins and wins.Value >= aura.winsRequired
+	local unlockedByPurchase = ownedValue and ownedValue.Value == true
+
+	return unlockedByWins or unlockedByPurchase
+end
+
+local function equipAura(player, auraKey)
+	local _, currentAura, auraMultiplier = ensureAuraStats(player)
+
+	if auraKey == "None" or auraKey == "" then
+		currentAura.Value = "None"
+		auraMultiplier.Value = 1
+		if player.Character then
+			clearAura(player.Character)
+		end
+		notifyPlayer(player, "Aura Removed", "Aura unequipped.", "Info", 3)
+		return true
+	end
+
+	local aura = AURAS[auraKey]
+	if not aura then return false end
+	if not ownsAura(player, auraKey) then return false end
+
+	currentAura.Value = auraKey
+	auraMultiplier.Value = aura.boost
+	applyAuraToCharacter(player, auraKey)
+	notifyPlayer(player, "Aura Equipped", aura.name .. " equipped.", "Success", 3.2)
+	return true
+end
+
+local function grantAuraPurchase(player, auraKey)
+	local aura = AURAS[auraKey]
+	if not aura then return false end
+	local _, _, _, ownedAuras = ensureAuraStats(player)
+	local owned = ownedAuras:FindFirstChild(auraKey)
+	if owned then
+		owned.Value = true
+	end
+	notifyPlayer(player, "Aura Unlocked", aura.name .. " unlocked!", "Success", 3.5)
+	return true
+end
+
+promptAuraPurchaseRemote.OnServerEvent:Connect(function(player, auraKey)
+	if typeof(auraKey) ~= "string" then return end
+	local aura = AURAS[auraKey]
+	if not aura or not aura.productId or aura.productId <= 0 then
+		warn("[AuraSystem] Missing productId for aura", auraKey)
+		return
+	end
+	MarketplaceService:PromptProductPurchase(player, aura.productId)
+end)
+
+equipAuraRemote.OnServerEvent:Connect(function(player, auraKey)
+	if typeof(auraKey) ~= "string" then return end
+	local stats, currentAura = ensureAuraStats(player)
+	if auraKey == currentAura.Value then
+		equipAura(player, "None")
+		return
+	end
+	equipAura(player, auraKey)
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	ensureAuraStats(player)
+	player.CharacterAdded:Connect(function()
+		task.wait(0.35)
+		local _, currentAura = ensureAuraStats(player)
+		if currentAura.Value ~= "None" and currentAura.Value ~= "" then
+			applyAuraToCharacter(player, currentAura.Value)
+		end
+	end)
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(function()
+		ensureAuraStats(player)
+		if player.Character then
+			local _, currentAura = ensureAuraStats(player)
+			if currentAura.Value ~= "None" and currentAura.Value ~= "" then
+				applyAuraToCharacter(player, currentAura.Value)
+			end
+		end
+	end)
+end
+
+-- IMPORTANT:
+-- If your main EXPProgressionServer already owns MarketplaceService.ProcessReceipt,
+-- merge this logic into that script instead of creating a second ProcessReceipt here:
+--
+-- local aura = AURA_BY_PRODUCT_ID[receiptInfo.ProductId]
+-- if aura then
+-- 	grantAuraPurchase(player, aura.key)
+-- 	return Enum.ProductPurchaseDecision.PurchaseGranted
+-- end
