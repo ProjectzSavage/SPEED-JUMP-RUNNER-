@@ -72,10 +72,10 @@ local POTION_PRODUCT_BY_ID = {}
 local CONNECTED_POTION_PROMPTS = {}
 
 local BASE_REAL_SPEED = 5
-local BASE_EXP_PER_JUMP = 100
-local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.5
-local LEVEL_UP_SPEED_BOOST_DURATION = 7
-local MAX_LEVEL = 1000000
+local BASE_EXP_PER_JUMP = 10
+local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.25
+local LEVEL_UP_SPEED_BOOST_DURATION = 5
+local MAX_LEVEL = 500
 local MAX_REAL_SPEED_CAP = 250
 local JUMP_DEBOUNCE = 0.1
 local INTERACT_DISTANCE = 10
@@ -92,6 +92,7 @@ local surfaceCooldown = {}
 local trampolineCooldown = {}
 local winTouchCounts = {}
 local winCooldown = {}
+local potionFiveMinuteWarnings = {}
 
 local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -193,7 +194,10 @@ local function getDisplaySpeedFromProgress(level, exp, expRequired)
 	if expRequired > 0 then
 		progress = progress + (exp / expRequired)
 	end
-	return math.floor(18.75 * progress * progress)
+
+	local base = 18.75 * progress * progress
+	local visualMultiplier = 10 -- 1 million times bigger visually
+	return math.floor(base * visualMultiplier)
 end
 
 local function getProgressValue(level, exp, expRequired)
@@ -1166,11 +1170,9 @@ local function setupStepMultiplierPad(part)
 		if not wins then return end
 
 		local requiredWins = tonumber(part:GetAttribute("WinsRequired")) or 0
-		local stepMultiplier = tonumber(part:GetAttribute("StepMultiplier")) or 1
-		local order = tonumber(part:GetAttribute("StepOrder")) or 1
 
 		if wins.Value >= requiredWins then
-			setEquippedStepMultiplier(player, stepMultiplier, order)
+			autoEquipHighestStepMultiplier(player)
 		end
 	end)
 end
@@ -1271,6 +1273,7 @@ local function onPlayerAdded(player)
 	createPlayerStats(player)
 	refreshOwnedExpBoost(player)
 	migrateLegacyShopBonus(player)
+	potionFiveMinuteWarnings[player] = {}
 
 	local leaderstats = player:WaitForChild("leaderstats")
 	local stats = player:WaitForChild("Stats")
@@ -1308,6 +1311,40 @@ Players.PlayerRemoving:Connect(function(player)
 	surfaceCooldown[player] = nil
 	trampolineCooldown[player] = nil
 	winCooldown[player] = nil
+	potionFiveMinuteWarnings[player] = nil
+end)
+
+task.spawn(function()
+	while true do
+		local now = os.time()
+		for _, player in ipairs(Players:GetPlayers()) do
+			local stats = player:FindFirstChild("Stats")
+			if stats then
+				local warningState = potionFiveMinuteWarnings[player]
+				if warningState then
+					local potionChecks = {
+						{ key = "Speed", endTime = stats:FindFirstChild("SpeedPotionEndTime"), name = stats:FindFirstChild("SpeedPotionName"), icon = stats:FindFirstChild("SpeedPotionIcon") },
+						{ key = "Exp", endTime = stats:FindFirstChild("ExpPotionEndTime"), name = stats:FindFirstChild("ExpPotionName"), icon = stats:FindFirstChild("ExpPotionIcon") },
+						{ key = "Wins", endTime = stats:FindFirstChild("WinsPotionEndTime"), name = stats:FindFirstChild("WinsPotionName"), icon = stats:FindFirstChild("WinsPotionIcon") },
+					}
+
+					for _, potion in ipairs(potionChecks) do
+						local endValue = potion.endTime and potion.endTime.Value or 0
+						if endValue <= now then
+							warningState[potion.key] = nil
+						elseif endValue - now <= 300 and warningState[potion.key] ~= endValue then
+							warningState[potion.key] = endValue
+							local potionName = (potion.name and potion.name.Value ~= "" and potion.name.Value) or (potion.key .. " Potion")
+							notifyPlayer(player, "Potion Ending Soon", potionName .. " expires in 5 minutes.", "Warning", 4, nil, {
+								icon = potion.icon and potion.icon.Value or nil,
+							})
+						end
+					end
+				end
+			end
+		end
+		wait(5)
+	end
 end)
 
 for _, player in ipairs(Players:GetPlayers()) do
