@@ -360,9 +360,6 @@ local function updateBoostTopLabelOnly()
 	local stepMultiplierValue = statsFolder:FindFirstChild("StepMultiplier")
 	local expPotionMultiplierValue = statsFolder:FindFirstChild("ExpPotionMultiplier")
 	local expPotionEndTimeValue = statsFolder:FindFirstChild("ExpPotionEndTime")
-	local speedPotionMultiplierValue = statsFolder:FindFirstChild("SpeedPotionMultiplier")
-	local speedPotionEndTimeValue = statsFolder:FindFirstChild("SpeedPotionEndTime")
-	local levelUpSpeedBoostEndTime = statsFolder:FindFirstChild("LevelUpSpeedBoostEndTime")
 
 	local gamepassBoost = expBoostValue.Value
 	local rebirthBoost = rebirthMultiplier.Value
@@ -375,23 +372,7 @@ local function updateBoostTopLabelOnly()
 	end
 
 	local totalExpBoost = gamepassBoost * rebirthBoost * titleBoost * stepMultiplier * expPotionBoost
-
-	local speedSegments = {}
-
-	if speedPotionMultiplierValue and speedPotionEndTimeValue and speedPotionEndTimeValue.Value > os.time() then
-		table.insert(speedSegments, string.format("x%.2f POTION SPEED", math.max(1, speedPotionMultiplierValue.Value)))
-	end
-
-	if levelUpSpeedBoostEndTime and levelUpSpeedBoostEndTime.Value > tick() then
-		local timeLeft = math.max(0, levelUpSpeedBoostEndTime.Value - tick())
-		table.insert(speedSegments, string.format("x%.2f SPEED (%.1fs)", LEVEL_UP_SPEED_BOOST_MULTIPLIER, timeLeft))
-	end
-
-	if #speedSegments > 0 then
-		boostTopLabel.Text = string.format("x%.2f EXP BOOST  |  %s", totalExpBoost, table.concat(speedSegments, "  |  "))
-	else
-		boostTopLabel.Text = string.format("x%.2f EXP BOOST", totalExpBoost)
-	end
+	boostTopLabel.Text = string.format("x%.2f EXP BOOST", totalExpBoost)
 end
 
 local function updateGui()
