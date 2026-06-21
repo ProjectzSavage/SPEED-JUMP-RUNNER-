@@ -19,35 +19,65 @@ local showNotificationRemote = getOrCreateRemote("ShowNotification")
 local auraFolder = ReplicatedStorage:WaitForChild("AuraVFX")
 
 local AURAS = {
-	Glow = {
-		key = "Glow",
-		name = "Glow Aura",
-		boost = 1.2,
-		winsRequired = 0,
-		productId = 0,
-		robuxPrice = nil,
-		previewImage = "",
-		templateName = "GlowAura",
-	},
-	Wind = {
-		key = "Wind",
-		name = "Wind Aura",
-		boost = 1.5,
-		winsRequired = 5000000,
-		productId = 0,
-		robuxPrice = 249,
-		previewImage = "",
-		templateName = "WindAura",
-	},
 	Water = {
 		key = "Water",
 		name = "Water Aura",
 		boost = 2.0,
-		winsRequired = 10000000,
+		winsRequired = 0,
 		productId = 0,
 		robuxPrice = 489,
 		previewImage = "",
 		templateName = "WaterAura",
+	},
+	Fire = {
+		key = "Fire",
+		name = "Fire Aura",
+		boost = 2.5,
+		winsRequired = 0,
+		productId = 0,
+		robuxPrice = 699,
+		previewImage = "",
+		templateName = "FireAura",
+	},
+	Electric = {
+		key = "Electric",
+		name = "Electric Aura",
+		boost = 3.0,
+		winsRequired = 0,
+		productId = 0,
+		robuxPrice = 899,
+		previewImage = "",
+		templateName = "ElectricAura",
+	},
+	BlackFlash = {
+		key = "BlackFlash",
+		name = "Black Flash Aura",
+		boost = 4.0,
+		winsRequired = math.huge,
+		productId = 1882596118,
+		robuxPrice = 799,
+		previewImage = "",
+		templateName = "BlackFlashAura",
+	},
+	WallyWest = {
+		key = "WallyWest",
+		name = "Wally West Aura",
+		boost = 5.0,
+		winsRequired = math.huge,
+		productId = 1884504099,
+		robuxPrice = 999,
+		previewImage = "",
+		templateName = "WallyWestAura",
+	},
+	Avatar = {
+		key = "Avatar",
+		name = "Avatar Aura",
+		boost = 6.0,
+		winsRequired = math.huge,
+		productId = 1882434177,
+		robuxPrice = 1599,
+		previewImage = "",
+		templateName = "AvatarAura",
 	},
 }
 
@@ -119,8 +149,18 @@ end
 
 local function clearAura(character)
 	for _, obj in ipairs(character:GetDescendants()) do
-		if obj:IsA("ParticleEmitter") and obj:GetAttribute("EquippedAuraEmitter") == true then
+		if (obj:IsA("ParticleEmitter") or obj:IsA("Attachment") or obj:IsA("Trail") or obj:IsA("Beam")) and obj:GetAttribute("EquippedAuraObject") == true then
 			obj:Destroy()
+		end
+	end
+end
+
+local function cloneAuraChildrenOntoPart(templatePart, targetPart)
+	for _, child in ipairs(templatePart:GetChildren()) do
+		if not child:IsA("BasePart") then
+			local clone = child:Clone()
+			clone:SetAttribute("EquippedAuraObject", true)
+			clone.Parent = targetPart
 		end
 	end
 end
@@ -138,17 +178,11 @@ local function applyAuraToCharacter(player, auraKey)
 
 	clearAura(character)
 
-	for _, auraPart in ipairs(template:GetChildren()) do
+	for _, auraPart in ipairs(template:GetDescendants()) do
 		if auraPart:IsA("BasePart") then
-			local characterPart = character:FindFirstChild(auraPart.Name)
-			if characterPart and characterPart:IsA("BasePart") then
-				for _, child in ipairs(auraPart:GetChildren()) do
-					if child:IsA("ParticleEmitter") then
-						local clone = child:Clone()
-						clone:SetAttribute("EquippedAuraEmitter", true)
-						clone.Parent = characterPart
-					end
-				end
+			local targetPart = character:FindFirstChild(auraPart.Name, true)
+			if targetPart and targetPart:IsA("BasePart") then
+				cloneAuraChildrenOntoPart(auraPart, targetPart)
 			end
 		end
 	end
@@ -157,18 +191,19 @@ local function applyAuraToCharacter(player, auraKey)
 end
 
 local function ownsAura(player, auraKey)
+	local aura = AURAS[auraKey]
+	if not aura then return false end
+
 	local stats = player:FindFirstChild("Stats")
 	local ownedAuras = stats and stats:FindFirstChild("OwnedAuras")
 	local ownedValue = ownedAuras and ownedAuras:FindFirstChild(auraKey)
-	local aura = AURAS[auraKey]
-	if not aura then return false end
+	local purchased = ownedValue and ownedValue.Value == true
 
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
 	local unlockedByWins = wins and wins.Value >= aura.winsRequired
-	local unlockedByPurchase = ownedValue and ownedValue.Value == true
 
-	return unlockedByWins or unlockedByPurchase
+	return purchased or unlockedByWins
 end
 
 local function equipAura(player, auraKey)
@@ -219,7 +254,7 @@ end)
 
 equipAuraRemote.OnServerEvent:Connect(function(player, auraKey)
 	if typeof(auraKey) ~= "string" then return end
-	local stats, currentAura = ensureAuraStats(player)
+	local _, currentAura = ensureAuraStats(player)
 	if auraKey == currentAura.Value then
 		equipAura(player, "None")
 		return
@@ -250,12 +285,8 @@ for _, player in ipairs(Players:GetPlayers()) do
 	end)
 end
 
--- IMPORTANT:
--- If your main EXPProgressionServer already owns MarketplaceService.ProcessReceipt,
--- merge this logic into that script instead of creating a second ProcessReceipt here:
---
--- local aura = AURA_BY_PRODUCT_ID[receiptInfo.ProductId]
--- if aura then
--- 	grantAuraPurchase(player, aura.key)
--- 	return Enum.ProductPurchaseDecision.PurchaseGranted
--- end
+return {
+	AURAS = AURAS,
+	AURA_BY_PRODUCT_ID = AURA_BY_PRODUCT_ID,
+	grantAuraPurchase = grantAuraPurchase,
+}
