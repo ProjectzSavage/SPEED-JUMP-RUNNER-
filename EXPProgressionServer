@@ -32,6 +32,10 @@ local levelUpFxRemote = getOrCreateRemote("LevelUpFX")
 local setSpeedRemote = getOrCreateRemote("SetSpeedRequest")
 local promptSpeedShopRemote = getOrCreateRemote("PromptSpeedShopPurchase")
 local showNotificationRemote = getOrCreateRemote("ShowNotification")
+local equipAuraRemote = getOrCreateRemote("EquipAura")
+local promptAuraPurchaseRemote = getOrCreateRemote("PromptAuraPurchase")
+
+local auraFolder = ReplicatedStorage:WaitForChild("AuraVFX")
 
 -- EXP boosts are GAMEPASSES
 local GAMEPASS_ID_BY_MULTIPLIER = {
@@ -71,11 +75,75 @@ end
 local POTION_PRODUCT_BY_ID = {}
 local CONNECTED_POTION_PROMPTS = {}
 
+local AURAS = {
+	Water = {
+		key = "Water",
+		name = "Water Aura",
+		boost = 2.0,
+		winsRequired = 10000000,
+		productId = 0,
+		robuxPrice = nil,
+		templateName = "WaterAura",
+	},
+	Fire = {
+		key = "Fire",
+		name = "Fire Aura",
+		boost = 2.5,
+		winsRequired = 25000000,
+		productId = 0,
+		robuxPrice = nil,
+		templateName = "FireAura",
+	},
+	Electric = {
+		key = "Electric",
+		name = "Electric Aura",
+		boost = 3.0,
+		winsRequired = 50000000,
+		productId = 0,
+		robuxPrice = nil,
+		templateName = "ElectricAura",
+	},
+	BlackFlash = {
+		key = "BlackFlash",
+		name = "Black Flash",
+		boost = 4.0,
+		winsRequired = math.huge,
+		productId = 1882596118,
+		robuxPrice = 799,
+		templateName = "BlackFlashAura",
+	},
+	WallyWest = {
+		key = "WallyWest",
+		name = "Wally West",
+		boost = 5.0,
+		winsRequired = math.huge,
+		productId = 1884504099,
+		robuxPrice = 999,
+		templateName = "WallyWestAura",
+	},
+	Avatar = {
+		key = "Avatar",
+		name = "Avatar",
+		boost = 6.0,
+		winsRequired = math.huge,
+		productId = 1882434177,
+		robuxPrice = 1599,
+		templateName = "AvatarAura",
+	},
+}
+
+local AURA_BY_PRODUCT_ID = {}
+for _, aura in pairs(AURAS) do
+	if aura.productId and aura.productId > 0 then
+		AURA_BY_PRODUCT_ID[aura.productId] = aura
+	end
+end
+
 local BASE_REAL_SPEED = 5
-local BASE_EXP_PER_JUMP = 10
-local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.25
-local LEVEL_UP_SPEED_BOOST_DURATION = 5
-local MAX_LEVEL = 500
+local BASE_EXP_PER_JUMP = 100
+local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.5
+local LEVEL_UP_SPEED_BOOST_DURATION = 7
+local MAX_LEVEL = 1000000
 local MAX_REAL_SPEED_CAP = 250
 local JUMP_DEBOUNCE = 0.1
 local INTERACT_DISTANCE = 10
@@ -181,6 +249,145 @@ local function notifyPlayer(player, title, message, kind, duration, icon, extra)
 	showNotificationRemote:FireClient(player, payload)
 end
 
+local function ensureAuraStats(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
+
+	local currentAura = stats:FindFirstChild("CurrentAura")
+	if not currentAura then
+		currentAura = Instance.new("StringValue")
+		currentAura.Name = "CurrentAura"
+		currentAura.Value = "None"
+		currentAura.Parent = stats
+	end
+
+	local auraMultiplier = stats:FindFirstChild("AuraMultiplier")
+	if not auraMultiplier then
+		auraMultiplier = Instance.new("NumberValue")
+		auraMultiplier.Name = "AuraMultiplier"
+		auraMultiplier.Value = 1
+		auraMultiplier.Parent = stats
+	end
+
+	local ownedAuras = stats:FindFirstChild("OwnedAuras")
+	if not ownedAuras then
+		ownedAuras = Instance.new("Folder")
+		ownedAuras.Name = "OwnedAuras"
+		ownedAuras.Parent = stats
+	end
+
+	for auraKey in pairs(AURAS) do
+		local owned = ownedAuras:FindFirstChild(auraKey)
+		if not owned then
+			owned = Instance.new("BoolValue")
+			owned.Name = auraKey
+			owned.Value = false
+			owned.Parent = ownedAuras
+		end
+	end
+
+	return stats, currentAura, auraMultiplier, ownedAuras
+end
+
+local function clearAura(character)
+	for _, obj in ipairs(character:GetDescendants()) do
+		if (obj:IsA("ParticleEmitter") or obj:IsA("Attachment") or obj:IsA("Trail") or obj:IsA("Beam")) and obj:GetAttribute("EquippedAuraObject") == true then
+			obj:Destroy()
+		end
+	end
+end
+
+local function cloneAuraChildrenOntoPart(templatePart, targetPart)
+	for _, child in ipairs(templatePart:GetChildren()) do
+		if not child:IsA("BasePart") then
+			local clone = child:Clone()
+			clone:SetAttribute("EquippedAuraObject", true)
+			clone.Parent = targetPart
+		end
+	end
+end
+
+local function applyAuraToCharacter(player, auraKey)
+	local auraData = AURAS[auraKey]
+	local character = player.Character
+	if not auraData or not character then return false end
+
+	local template = auraFolder:FindFirstChild(auraData.templateName)
+	if not template or not template:IsA("Model") then
+		warn("[AuraSystem] Missing aura template model:", auraData.templateName)
+		return false
+	end
+
+	clearAura(character)
+
+	for _, auraPart in ipairs(template:GetDescendants()) do
+		if auraPart:IsA("BasePart") then
+			local targetPart = character:FindFirstChild(auraPart.Name, true)
+			if targetPart and targetPart:IsA("BasePart") then
+				cloneAuraChildrenOntoPart(auraPart, targetPart)
+			end
+		end
+	end
+
+	return true
+end
+
+local function ownsAura(player, auraKey)
+	local aura = AURAS[auraKey]
+	if not aura then return false end
+
+	local stats = player:FindFirstChild("Stats")
+	local ownedAuras = stats and stats:FindFirstChild("OwnedAuras")
+	local ownedValue = ownedAuras and ownedAuras:FindFirstChild(auraKey)
+	local purchased = ownedValue and ownedValue.Value == true
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+	local unlockedByWins = wins and wins.Value >= aura.winsRequired
+
+	return purchased or unlockedByWins
+end
+
+local function equipAura(player, auraKey)
+	local _, currentAura, auraMultiplier = ensureAuraStats(player)
+
+	if auraKey == "None" or auraKey == "" then
+		currentAura.Value = "None"
+		auraMultiplier.Value = 1
+		if player.Character then
+			clearAura(player.Character)
+		end
+		notifyPlayer(player, "Aura Removed", "Aura unequipped.", "Info", 3)
+		return true
+	end
+
+	local aura = AURAS[auraKey]
+	if not aura then return false end
+	if not ownsAura(player, auraKey) then return false end
+
+	currentAura.Value = auraKey
+	auraMultiplier.Value = aura.boost
+	applyAuraToCharacter(player, auraKey)
+	notifyPlayer(player, "Aura Equipped", aura.name .. " equipped.", "Success", 3.2)
+	return true
+end
+
+local function grantAuraPurchase(player, auraKey)
+	local aura = AURAS[auraKey]
+	if not aura then return false end
+	local _, _, _, ownedAuras = ensureAuraStats(player)
+	local owned = ownedAuras:FindFirstChild(auraKey)
+	if owned then
+		owned.Value = true
+	end
+	notifyPlayer(player, "Aura Unlocked", aura.name .. " unlocked!", "Success", 3.5)
+	return true
+end
+
 local function formatExpRequired(level)
 	return math.floor(100 + (level ^ 1.45) * 35)
 end
@@ -194,10 +401,7 @@ local function getDisplaySpeedFromProgress(level, exp, expRequired)
 	if expRequired > 0 then
 		progress = progress + (exp / expRequired)
 	end
-
-	local base = 18.75 * progress * progress
-	local visualMultiplier = 10 -- 1 million times bigger visually
-	return math.floor(base * visualMultiplier)
+	return math.floor(18.75 * progress * progress)
 end
 
 local function getProgressValue(level, exp, expRequired)
@@ -521,12 +725,14 @@ end
 
 local function getMaxRealSpeed(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
+	local stats = player:FindFirstChild("Stats")
 	if not leaderstats then return BASE_REAL_SPEED end
 
 	local level = leaderstats:FindFirstChild("Level")
 	local lvl = (level and level.Value) or 0
 	local skinBoost = getSkinSpeedBoost(player)
-	local rawMax = getRealSpeedFromLevel(lvl) * (1 + skinBoost)
+	local auraMultiplier = (stats and stats:FindFirstChild("AuraMultiplier") and stats.AuraMultiplier.Value) or 1
+	local rawMax = getRealSpeedFromLevel(lvl) * (1 + skinBoost) * auraMultiplier
 
 	return math.clamp(rawMax, BASE_REAL_SPEED, MAX_REAL_SPEED_CAP)
 end
@@ -571,7 +777,8 @@ local function applyWalkSpeed(player)
 	end
 
 	local displayBase = getDisplaySpeedFromProgress(level.Value, exp.Value, expRequired.Value)
-	speedStat.Value = math.floor(displayBase * (1 + skinBoost))
+	local auraMultiplier = (stats:FindFirstChild("AuraMultiplier") and stats.AuraMultiplier.Value) or 1
+	speedStat.Value = math.floor(displayBase * (1 + skinBoost) * auraMultiplier)
 end
 
 local function refreshOwnedExpBoost(player)
@@ -718,6 +925,7 @@ local function createPlayerStats(player)
 	ensureValue(stats, "BoolValue", "MigratedLegacyShopBonus", false)
 
 	ensureValue(player, "NumberValue", "ExpBoost", 1)
+	ensureAuraStats(player)
 
 	if not leaderstats:GetAttribute("Guarded") then
 		leaderstats:SetAttribute("Guarded", true)
@@ -925,6 +1133,26 @@ promptSpeedShopRemote.OnServerEvent:Connect(function(player, productKey)
 	MarketplaceService:PromptProductPurchase(player, info.productId)
 end)
 
+promptAuraPurchaseRemote.OnServerEvent:Connect(function(player, auraKey)
+	if typeof(auraKey) ~= "string" then return end
+	local aura = AURAS[auraKey]
+	if not aura or not aura.productId or aura.productId <= 0 then
+		warn("[AuraSystem] Missing productId for aura", auraKey)
+		return
+	end
+	MarketplaceService:PromptProductPurchase(player, aura.productId)
+end)
+
+equipAuraRemote.OnServerEvent:Connect(function(player, auraKey)
+	if typeof(auraKey) ~= "string" then return end
+	local _, currentAura = ensureAuraStats(player)
+	if auraKey == currentAura.Value then
+		equipAura(player, "None")
+		return
+	end
+	equipAura(player, auraKey)
+end)
+
 MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
 	if not player then return end
 	local boughtMultiplier = MULTIPLIER_BY_GAMEPASS_ID[gamePassId]
@@ -972,6 +1200,15 @@ MarketplaceService.ProcessReceipt = function(receiptInfo)
 				iconKey = "Purchase",
 				scaleMultiplier = 1.8,
 			})
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local aura = AURA_BY_PRODUCT_ID[receiptInfo.ProductId]
+	if aura then
+		local granted = grantAuraPurchase(player, aura.key)
+		if granted then
 			return Enum.ProductPurchaseDecision.PurchaseGranted
 		end
 		return Enum.ProductPurchaseDecision.NotProcessedYet
@@ -1296,10 +1533,15 @@ local function onPlayerAdded(player)
 	stats:WaitForChild("SpeedPotionMultiplier").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("SpeedPotionEndTime").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("LevelUpSpeedBoostEndTime").Changed:Connect(function() applyWalkSpeed(player) end)
+	stats:WaitForChild("AuraMultiplier").Changed:Connect(function() applyWalkSpeed(player) end)
 
 	player.CharacterAdded:Connect(function()
 		task.wait(0.2)
 		applyWalkSpeed(player)
+		local _, currentAura = ensureAuraStats(player)
+		if currentAura.Value ~= "None" and currentAura.Value ~= "" then
+			applyAuraToCharacter(player, currentAura.Value)
+		end
 	end)
 
 	applyWalkSpeed(player)
@@ -1343,7 +1585,7 @@ task.spawn(function()
 				end
 			end
 		end
-		wait(5)
+		task.wait(5)
 	end
 end)
 
