@@ -2,36 +2,19 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local REBIRTH_REQUIREMENTS = {
-	[1] = { speed = 100, multiplier = 2 },
-	[2] = { speed = 1000, multiplier = 3 },
-	[3] = { speed = 5000, multiplier = 4 },
-	[4] = { speed = 25000, multiplier = 5 },
-	[5] = { speed = 50000, multiplier = 6 },
+	[1] = { level = 10, multiplier = 2 },
+	[2] = { level = 20, multiplier = 3 },
+	[3] = { level = 30, multiplier = 4 },
+	[4] = { level = 40, multiplier = 5 },
+	[5] = { level = 50, multiplier = 6 },
+	[6] = { level = 60, multiplier = 7 },
+	[7] = { level = 70, multiplier = 8 },
+	[8] = { level = 80, multiplier = 9 },
+	[9] = { level = 90, multiplier = 10 },
+	[10] = { level = 100, multiplier = 11 },
 }
 
 local rebirthRemote = ReplicatedStorage:WaitForChild("RebirthRequest")
-local showNotificationRemote = ReplicatedStorage:FindFirstChild("ShowNotification")
-if not showNotificationRemote then
-	showNotificationRemote = Instance.new("RemoteEvent")
-	showNotificationRemote.Name = "ShowNotification"
-	showNotificationRemote.Parent = ReplicatedStorage
-end
-
-local function notifyPlayer(player, title, message, kind, duration, icon, extra)
-	local payload = {
-		title = title,
-		message = message,
-		kind = kind or "Info",
-		duration = duration or 3.5,
-		icon = icon,
-	}
-	if type(extra) == "table" then
-		for key, value in pairs(extra) do
-			payload[key] = value
-		end
-	end
-	showNotificationRemote:FireClient(player, payload)
-end
 
 local function expRequiredForLevel(level)
 	return math.floor(100 + (level ^ 1.45) * 35)
@@ -48,36 +31,61 @@ local function ensureStats(player)
 		stats.Parent = player
 	end
 
-	local rebirths = leaderstats:FindFirstChild("Rebirths") or Instance.new("IntValue")
-	rebirths.Name = "Rebirths"
-	rebirths.Parent = leaderstats
+	local rebirths = leaderstats:FindFirstChild("Rebirths")
+	if not rebirths then
+		rebirths = Instance.new("IntValue")
+		rebirths.Name = "Rebirths"
+		rebirths.Value = 0
+		rebirths.Parent = leaderstats
+	end
 
-	local level = leaderstats:FindFirstChild("Level") or Instance.new("IntValue")
-	level.Name = "Level"
-	level.Parent = leaderstats
-	if level.Value == 0 then level.Value = 1 end
+	local level = leaderstats:FindFirstChild("Level")
+	if not level then
+		level = Instance.new("IntValue")
+		level.Name = "Level"
+		level.Value = 1
+		level.Parent = leaderstats
+	end
 
-	local speed = leaderstats:FindFirstChild("Speed") or Instance.new("IntValue")
-	speed.Name = "Speed"
-	speed.Parent = leaderstats
+	local speed = leaderstats:FindFirstChild("Speed")
+	if not speed then
+		speed = Instance.new("IntValue")
+		speed.Name = "Speed"
+		speed.Value = 0
+		speed.Parent = leaderstats
+	end
 
-	local jumps = stats:FindFirstChild("Jumps") or Instance.new("IntValue")
-	jumps.Name = "Jumps"
-	jumps.Parent = stats
+	local jumps = stats:FindFirstChild("Jumps")
+	if not jumps then
+		jumps = Instance.new("IntValue")
+		jumps.Name = "Jumps"
+		jumps.Value = 0
+		jumps.Parent = stats
+	end
 
-	local multiplier = stats:FindFirstChild("Multiplier") or Instance.new("IntValue")
-	multiplier.Name = "Multiplier"
-	multiplier.Parent = stats
-	if multiplier.Value <= 0 then multiplier.Value = 1 end
+	local multiplier = stats:FindFirstChild("Multiplier")
+	if not multiplier then
+		multiplier = Instance.new("IntValue")
+		multiplier.Name = "Multiplier"
+		multiplier.Value = 1
+		multiplier.Parent = stats
+	end
 
-	local exp = stats:FindFirstChild("EXP") or Instance.new("NumberValue")
-	exp.Name = "EXP"
-	exp.Parent = stats
+	local exp = stats:FindFirstChild("EXP")
+	if not exp then
+		exp = Instance.new("NumberValue")
+		exp.Name = "EXP"
+		exp.Value = 0
+		exp.Parent = stats
+	end
 
-	local expRequired = stats:FindFirstChild("EXPRequired") or Instance.new("NumberValue")
-	expRequired.Name = "EXPRequired"
-	expRequired.Parent = stats
-	if expRequired.Value <= 0 then expRequired.Value = expRequiredForLevel(level.Value) end
+	local expRequired = stats:FindFirstChild("EXPRequired")
+	if not expRequired then
+		expRequired = Instance.new("NumberValue")
+		expRequired.Name = "EXPRequired"
+		expRequired.Value = expRequiredForLevel(level.Value)
+		expRequired.Parent = stats
+	end
 
 	return leaderstats, stats
 end
@@ -86,14 +94,14 @@ local function canRebirth(player, rebirthLevel)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return false end
 
-	local speed = leaderstats:FindFirstChild("Speed")
+	local level = leaderstats:FindFirstChild("Level")
 	local rebirths = leaderstats:FindFirstChild("Rebirths")
-	if not speed or not rebirths then return false end
+	if not level or not rebirths then return false end
 
 	local req = REBIRTH_REQUIREMENTS[rebirthLevel]
 	if not req then return false end
 
-	return speed.Value >= req.speed and rebirths.Value == (rebirthLevel - 1)
+	return level.Value >= req.level and rebirths.Value == (rebirthLevel - 1)
 end
 
 local function doRebirth(player, rebirthLevel)
@@ -110,6 +118,7 @@ local function doRebirth(player, rebirthLevel)
 	local multiplier = stats:FindFirstChild("Multiplier")
 	local exp = stats:FindFirstChild("EXP")
 	local expRequired = stats:FindFirstChild("EXPRequired")
+
 	if not level or not rebirths or not jumps or not multiplier or not exp or not expRequired then
 		return false
 	end
@@ -122,9 +131,6 @@ local function doRebirth(player, rebirthLevel)
 	rebirths.Value = rebirthLevel
 	multiplier.Value = REBIRTH_REQUIREMENTS[rebirthLevel].multiplier
 
-	notifyPlayer(player, "Rebirth Complete", "You rebirthed to level " .. tostring(rebirthLevel) .. "!", "Success", 3.5, nil, {
-		iconKey = "Rebirth",
-	})
 	return true
 end
 
