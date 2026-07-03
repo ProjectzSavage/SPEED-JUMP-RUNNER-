@@ -1,0 +1,165 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+local CollectionService = game:GetService("CollectionService")
+
+local showNotificationRemote = ReplicatedStorage:FindFirstChild("ShowNotification")
+if not showNotificationRemote then
+	showNotificationRemote = Instance.new("RemoteEvent")
+	showNotificationRemote.Name = "ShowNotification"
+	showNotificationRemote.Parent = ReplicatedStorage
+end
+
+local STAGES_FOLDER = workspace:WaitForChild("stages")
+local CURRENT_STAGE_VALUE_NAME = "CurrentStage"
+local MAX_STAGE = 12
+
+-- Recommended prices:
+-- 1-3  = 29 Robux
+-- 4-7  = 79 Robux
+-- 8-12 = 149 Robux
+local SKIP_STAGE_PRODUCT_BY_GROUP = {
+	Early = 3607193260, -- stages 1-3
+	Mid = 3607193330,   -- stages 4-7
+	Late = 3607193551,  -- stages 8-12
+}
+
+local function notifyPlayer(player, title, message, kind, duration, extra)
+	showNotificationRemote:FireClient(player, {
+		title = title,
+		message = message,
+		kind = kind or "Info",
+		duration = duration or 3.5,
+		extra = extra,
+	})
+end
+
+local function ensureCurrentStage(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
+
+	local currentStage = stats:FindFirstChild(CURRENT_STAGE_VALUE_NAME)
+	if not currentStage then
+		currentStage = Instance.new("IntValue")
+		currentStage.Name = CURRENT_STAGE_VALUE_NAME
+		currentStage.Value = 1
+		currentStage.Parent = stats
+	end
+
+	return currentStage
+end
+
+local function getProductForStage(stageNumber)
+	if stageNumber >= 1 and stageNumber <= 3 then
+		return SKIP_STAGE_PRODUCT_BY_GROUP.Early
+	elseif stageNumber >= 4 and stageNumber <= 7 then
+		return SKIP_STAGE_PRODUCT_BY_GROUP.Mid
+	elseif stageNumber >= 8 and stageNumber <= 12 then
+		return SKIP_STAGE_PRODUCT_BY_GROUP.Late
+	end
+	return nil
+end
+
+local function getStagePart(stageNumber)
+	local part = STAGES_FOLDER:FindFirstChild(tostring(stageNumber))
+	if part and part:IsA("BasePart") then
+		return part
+	end
+	return nil
+end
+
+local function teleportToStage(player, stageNumber)
+	local character = player.Character
+	if not character then return false end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local stagePart = getStagePart(stageNumber)
+	if not root or not stagePart then return false end
+
+	character:PivotTo(stagePart.CFrame + Vector3.new(0, 4, 0))
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	return true
+end
+
+local function markStageReached(player, stageNumber)
+	local currentStage = ensureCurrentStage(player)
+	if stageNumber > currentStage.Value then
+		currentStage.Value = stageNumber
+		notifyPlayer(player, "Reached: Stage " .. tostring(stageNumber), "", "Success", 2.5)
+		if stageNumber >= MAX_STAGE then
+			notifyPlayer(player, "OBBY COMPLETE!", "You finished all stages.", "Success", 4.5, {
+				rainbowTitle = true,
+				confetti = true,
+				confettiCount = 120,
+				soundId = "rbxassetid://124793974135748",
+				scaleMultiplier = 1.8,
+			})
+		end
+	end
+end
+
+local function setupStagePart(part)
+	if not part:IsA("BasePart") then return end
+	if part:GetAttribute("StageTouchConnected") then return end
+	part:SetAttribute("StageTouchConnected", true)
+
+	part.Touched:Connect(function(hit)
+		local character = hit:FindFirstAncestorOfClass("Model")
+		if not character then return end
+		local player = Players:GetPlayerFromCharacter(character)
+		if not player then return end
+
+		local stageNumber = tonumber(part.Name)
+		if not stageNumber then return end
+		markStageReached(player, stageNumber)
+	end)
+end
+
+local function setupSkipPrompt(prompt)
+	if not prompt:IsA("ProximityPrompt") then return end
+	if prompt:GetAttribute("SkipPromptConnected") then return end
+	prompt:SetAttribute("SkipPromptConnected", true)
+
+	prompt.Triggered:Connect(function(player)
+		if not player then return end
+		local currentStage = ensureCurrentStage(player)
+		if currentStage.Value >= MAX_STAGE then
+			notifyPlayer(player, "Max Stage", "You already finished all stages.", "Info", 2.5)
+			return
+		end
+
+		local productId = getProductForStage(currentStage.Value)
+		if not productId or productId <= 0 then
+			warn("[StageSkipSystem] Missing product id for stage", currentStage.Value)
+			return
+		end
+
+		player:SetAttribute("PendingSkipStage", currentStage.Value)
+		player:SetAttribute("PendingSkipProductId", productId)
+		MarketplaceService:PromptProductPurchase(player, productId)
+	end)
+end
+
+for _, part in ipairs(STAGES_FOLDER:GetChildren()) do
+	setupStagePart(part)
+end
+STAGES_FOLDER.ChildAdded:Connect(setupStagePart)
+
+for _, prompt in ipairs(CollectionService:GetTagged("SkipStagePrompt")) do
+	setupSkipPrompt(prompt)
+end
+CollectionService:GetInstanceAddedSignal("SkipStagePrompt"):Connect(setupSkipPrompt)
+
+Players.PlayerAdded:Connect(function(player)
+	ensureCurrentStage(player)
+	player:SetAttribute("PendingSkipStage", nil)
+	player:SetAttribute("PendingSkipProductId", nil)
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	ensureCurrentStage(player)
+end
