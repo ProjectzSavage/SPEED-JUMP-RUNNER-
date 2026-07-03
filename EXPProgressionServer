@@ -31,7 +31,12 @@ local surfaceInteractRemote = getOrCreateRemote("SurfaceInteractRequest")
 local levelUpFxRemote = getOrCreateRemote("LevelUpFX")
 local setSpeedRemote = getOrCreateRemote("SetSpeedRequest")
 local promptSpeedShopRemote = getOrCreateRemote("PromptSpeedShopPurchase")
+local promptWinsShopRemote = getOrCreateRemote("PromptWinsShopPurchase")
+local promptWinsBoostGamepassRemote = getOrCreateRemote("PromptWinsBoostGamepassPurchase")
+local promptRebirthBoostGamepassRemote = getOrCreateRemote("PromptRebirthBoostGamepassPurchase")
 local showNotificationRemote = getOrCreateRemote("ShowNotification")
+local promptReviveRemote = getOrCreateRemote("PromptReviveOffer")
+local requestRevivePurchaseRemote = getOrCreateRemote("RequestRevivePurchase")
 local equipAuraRemote = getOrCreateRemote("EquipAura")
 local promptAuraPurchaseRemote = getOrCreateRemote("PromptAuraPurchase")
 
@@ -39,13 +44,13 @@ local auraFolder = ReplicatedStorage:WaitForChild("AuraVFX")
 
 -- EXP boosts are GAMEPASSES
 local GAMEPASS_ID_BY_MULTIPLIER = {
-	[2] = 0,
-	[4] = 0,
-	[8] = 0,
-	[16] = 0,
-	[32] = 0,
-	[64] = 0,
-	[128] = 0,
+	[2] = 1895058318,
+	[4] = 1895304331,
+	[8] = 1895190351,
+	[16] = 1895196330,
+	[32] = 1896776308,
+	[64] = 1896614326,
+	[128] = 1896264324,
 }
 
 local MULTIPLIER_BY_GAMEPASS_ID = {}
@@ -54,6 +59,9 @@ for multiplier, gamePassId in pairs(GAMEPASS_ID_BY_MULTIPLIER) do
 		MULTIPLIER_BY_GAMEPASS_ID[gamePassId] = multiplier
 	end
 end
+
+local WINS_BOOST_GAMEPASS_ID = 1896192678 -- set your 2x wins gamepass id
+local REBIRTH_BOOST_GAMEPASS_ID = 1896830688 -- set your 2x rebirth gamepass id
 
 -- Speed shop uses DEVELOPER PRODUCTS
 local SPEED_SHOP_PRODUCTS = {
@@ -72,6 +80,19 @@ for productKey, info in pairs(SPEED_SHOP_PRODUCTS) do
 	end
 end
 
+local WINS_SHOP_PRODUCTS = {
+	Wins50 = { productId = 3607228536, percent = 0.50 },
+	Wins100 = { productId = 3607228647, percent = 1.00 },
+	Wins210 = { productId = 3607228812, percent = 2.10 },
+}
+
+local WINS_SHOP_BY_PRODUCT_ID = {}
+for key, info in pairs(WINS_SHOP_PRODUCTS) do
+	if info.productId > 0 then
+		WINS_SHOP_BY_PRODUCT_ID[info.productId] = key
+	end
+end
+
 local POTION_PRODUCT_BY_ID = {}
 local CONNECTED_POTION_PROMPTS = {}
 
@@ -81,7 +102,7 @@ local AURAS = {
 		name = "Water Aura",
 		boost = 2.0,
 		winsRequired = 10000000,
-		productId = 0,
+		gamePassId = 0,
 		robuxPrice = nil,
 		templateName = "WaterAura",
 	},
@@ -90,7 +111,7 @@ local AURAS = {
 		name = "Fire Aura",
 		boost = 2.5,
 		winsRequired = 25000000,
-		productId = 0,
+		gamePassId = 0,
 		robuxPrice = nil,
 		templateName = "FireAura",
 	},
@@ -99,7 +120,7 @@ local AURAS = {
 		name = "Electric Aura",
 		boost = 3.0,
 		winsRequired = 50000000,
-		productId = 0,
+		gamePassId = 0,
 		robuxPrice = nil,
 		templateName = "ElectricAura",
 	},
@@ -108,7 +129,7 @@ local AURAS = {
 		name = "Black Flash",
 		boost = 4.0,
 		winsRequired = math.huge,
-		productId = 1882596118,
+		gamePassId = 1882596118,
 		robuxPrice = 799,
 		templateName = "BlackFlashAura",
 	},
@@ -117,7 +138,7 @@ local AURAS = {
 		name = "Wally West",
 		boost = 5.0,
 		winsRequired = math.huge,
-		productId = 1884504099,
+		gamePassId = 1884504099,
 		robuxPrice = 999,
 		templateName = "WallyWestAura",
 	},
@@ -126,23 +147,23 @@ local AURAS = {
 		name = "Avatar",
 		boost = 6.0,
 		winsRequired = math.huge,
-		productId = 1882434177,
+		gamePassId = 1882434177,
 		robuxPrice = 1599,
 		templateName = "AvatarAura",
 	},
 }
 
-local AURA_BY_PRODUCT_ID = {}
+local AURA_BY_GAMEPASS_ID = {}
 for _, aura in pairs(AURAS) do
-	if aura.productId and aura.productId > 0 then
-		AURA_BY_PRODUCT_ID[aura.productId] = aura
+	if aura.gamePassId and aura.gamePassId > 0 then
+		AURA_BY_GAMEPASS_ID[aura.gamePassId] = aura
 	end
 end
 
 local BASE_REAL_SPEED = 5
-local BASE_EXP_PER_JUMP = 100
+local BASE_EXP_PER_JUMP = 20
 local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.5
-local LEVEL_UP_SPEED_BOOST_DURATION = 7
+local LEVEL_UP_SPEED_BOOST_DURATION = 3
 local MAX_LEVEL = 1000000
 local MAX_REAL_SPEED_CAP = 250
 local JUMP_DEBOUNCE = 0.1
@@ -161,10 +182,27 @@ local trampolineCooldown = {}
 local winTouchCounts = {}
 local winCooldown = {}
 local potionFiveMinuteWarnings = {}
+local comboState = {}
+local pendingRevives = {}
+
+local REVIVE_PRODUCTS = {
+	Early = { productId = 0, price = 19 },
+	Mid = { productId = 0, price = 39 },
+	Late = { productId = 0, price = 69 },
+}
 
 local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 overlapParams.FilterDescendantsInstances = {}
+
+
+local grantDisplaySpeedBindable = ReplicatedStorage:FindFirstChild("GrantDisplaySpeedBonus")
+if not grantDisplaySpeedBindable then
+	grantDisplaySpeedBindable = Instance.new("BindableEvent")
+	grantDisplaySpeedBindable.Name = "GrantDisplaySpeedBonus"
+	grantDisplaySpeedBindable.Parent = ReplicatedStorage
+end
+
 
 local function ensureValue(parent, className, name, defaultValue)
 	local v = parent:FindFirstChild(name)
@@ -293,6 +331,21 @@ local function ensureAuraStats(player)
 	return stats, currentAura, auraMultiplier, ownedAuras
 end
 
+local function refreshOwnedAuraGamepasses(player)
+	local _, _, _, ownedAuras = ensureAuraStats(player)
+	for auraKey, aura in pairs(AURAS) do
+		local owned = ownedAuras:FindFirstChild(auraKey)
+		if owned and aura.gamePassId and aura.gamePassId > 0 then
+			local ok, hasPass = pcall(function()
+				return MarketplaceService:UserOwnsGamePassAsync(player.UserId, aura.gamePassId)
+			end)
+			if ok then
+				owned.Value = hasPass
+			end
+		end
+	end
+end
+
 local function clearAura(character)
 	for _, obj in ipairs(character:GetDescendants()) do
 		if (obj:IsA("ParticleEmitter") or obj:IsA("Attachment") or obj:IsA("Trail") or obj:IsA("Beam")) and obj:GetAttribute("EquippedAuraObject") == true then
@@ -389,7 +442,94 @@ local function grantAuraPurchase(player, auraKey)
 end
 
 local function formatExpRequired(level)
-	return math.floor(100 + (level ^ 1.45) * 35)
+	return math.floor(150 + (level ^ 1.60) * 55)
+end
+
+local COMBO_RESET_TIME = 1.4
+local COMBO_THRESHOLDS = {
+	{ combo = 10, mult = 1.00, notify = "Unlock 1.10x EXP boost at 50 jumps!" },
+	{ combo = 50, mult = 1.10, notify = "1.10x EXP boost active!" },
+	{ combo = 100, mult = 1.25, notify = "1.25x EXP boost active!" },
+	{ combo = 500, mult = 1.50, notify = "1.50x EXP boost active! (MAX)" },
+}
+
+local function getComboMultiplierFromCount(count)
+	local mult = 1
+	for _, info in ipairs(COMBO_THRESHOLDS) do
+		if count >= info.combo then
+			mult = info.mult
+		end
+	end
+	return mult
+end
+
+local function ensureComboStats(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then return nil, nil end
+
+	local comboMult = stats:FindFirstChild("ComboExpMultiplier")
+	if not comboMult then
+		comboMult = Instance.new("NumberValue")
+		comboMult.Name = "ComboExpMultiplier"
+		comboMult.Value = 1
+		comboMult.Parent = stats
+	end
+
+	local comboCount = stats:FindFirstChild("ComboCount")
+	if not comboCount then
+		comboCount = Instance.new("IntValue")
+		comboCount.Name = "ComboCount"
+		comboCount.Value = 0
+		comboCount.Parent = stats
+	end
+
+	return comboMult, comboCount
+end
+
+local function resetComboState(player)
+	comboState[player] = nil
+	local comboMult, comboCount = ensureComboStats(player)
+	if comboMult then comboMult.Value = 1 end
+	if comboCount then comboCount.Value = 0 end
+end
+
+local function updateComboForJump(player)
+	local now = tick()
+	local state = comboState[player]
+	if not state then
+		state = { combo = 0, lastJump = 0, notified = {} }
+		comboState[player] = state
+	end
+
+	if now - state.lastJump <= COMBO_RESET_TIME then
+		state.combo += 1
+	else
+		state.combo = 1
+		state.notified = {}
+	end
+	state.lastJump = now
+
+	local comboMult, comboCount = ensureComboStats(player)
+	local multiplier = getComboMultiplierFromCount(state.combo)
+	if comboMult then comboMult.Value = multiplier end
+	if comboCount then comboCount.Value = state.combo end
+
+	for _, info in ipairs(COMBO_THRESHOLDS) do
+		if state.combo >= info.combo and not state.notified[info.combo] then
+			state.notified[info.combo] = true
+			notifyPlayer(player, "Jump Combo", info.notify, "Info", 3.2, nil, {
+				iconKey = "Combo",
+			})
+		end
+	end
+
+	return state.combo, multiplier
+end
+
+local function getComboExpMultiplier(player)
+	local stats = player:FindFirstChild("Stats")
+	local value = stats and stats:FindFirstChild("ComboExpMultiplier")
+	return (value and math.max(1, value.Value)) or 1
 end
 
 local function getRealSpeedFromLevel(level)
@@ -522,15 +662,21 @@ end
 
 local function getPlayerMultipliers(player)
 	local stats = player:FindFirstChild("Stats")
-	if not stats then return 1, 1, 1, 1 end
+	if not stats then return 1, 1, 1, 1, 1 end
 
-	local rebirthMult = (stats:FindFirstChild("Multiplier") and stats.Multiplier.Value) or 1
+	local rebirthBaseMult = (stats:FindFirstChild("Multiplier") and stats.Multiplier.Value) or 1
+	local rebirthGamepassBoost = (stats:FindFirstChild("RebirthGamepassBoost") and stats.RebirthGamepassBoost.Value) or 1
+	local rebirthMult = rebirthBaseMult * rebirthGamepassBoost
 	local gamepassExpMult = (player:FindFirstChild("ExpBoost") and player.ExpBoost.Value) or 1
 	local titleMult = (stats:FindFirstChild("TitleMultiplier") and stats.TitleMultiplier.Value) or 1
 	local stepMult = (stats:FindFirstChild("StepMultiplier") and stats.StepMultiplier.Value) or 1
+	local auraExpMult = (stats:FindFirstChild("AuraMultiplier") and stats.AuraMultiplier.Value) or 1
+	local comboExpMult = (stats:FindFirstChild("ComboExpMultiplier") and stats.ComboExpMultiplier.Value) or 1
 	if stepMult < 1 then stepMult = 1 end
+	if auraExpMult < 1 then auraExpMult = 1 end
+	if comboExpMult < 1 then comboExpMult = 1 end
 
-	return rebirthMult, gamepassExpMult, titleMult, stepMult
+	return rebirthMult, gamepassExpMult, titleMult, stepMult, auraExpMult, comboExpMult
 end
 
 local function getSkinSpeedBoost(player)
@@ -723,16 +869,74 @@ local function grantPurchasablePotion(player, config)
 	return false
 end
 
+local function grantWinsShopProduct(player, productKey)
+	local info = WINS_SHOP_PRODUCTS[productKey]
+	if not info then return false end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+	if not wins then return false end
+
+	local currentWins = math.max(0, wins.Value)
+	local gain = math.max(1, math.floor(currentWins * info.percent + 0.5))
+	wins.Value += gain
+
+	notifyPlayer(player, "THANK YOU!", "+" .. formatNumber(gain) .. " Wins purchased!", "Info", 4.5, nil, {
+		rainbowTitle = true,
+		confetti = true,
+		confettiCount = 120,
+		soundId = "rbxassetid://1843520822",
+		iconKey = "Purchase",
+		scaleMultiplier = 1.8,
+	})
+
+	return true
+end
+
+local function getCurrentStage(player)
+	local stats = player:FindFirstChild("Stats")
+	local currentStage = stats and stats:FindFirstChild("CurrentStage")
+	return currentStage and currentStage.Value or 1
+end
+
+local function getReviveProductForStage(stage)
+	if stage >= 1 and stage <= 3 then
+		return REVIVE_PRODUCTS.Early
+	elseif stage >= 4 and stage <= 7 then
+		return REVIVE_PRODUCTS.Mid
+	else
+		return REVIVE_PRODUCTS.Late
+	end
+end
+
+local function promptRevive(player)
+	local stage = getCurrentStage(player)
+	local info = getReviveProductForStage(stage)
+	if not info or info.productId <= 0 then return end
+
+	pendingRevives[player.UserId] = {
+		productId = info.productId,
+		stage = stage,
+	}
+
+	promptReviveRemote:FireClient(player, {
+		title = "Revive?",
+		info = "Continue from Stage " .. tostring(stage) .. " before time runs out.",
+		price = info.price,
+		productId = info.productId,
+		duration = 8,
+		iconKey = "Stage",
+	})
+end
+
 local function getMaxRealSpeed(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
-	local stats = player:FindFirstChild("Stats")
 	if not leaderstats then return BASE_REAL_SPEED end
 
 	local level = leaderstats:FindFirstChild("Level")
 	local lvl = (level and level.Value) or 0
 	local skinBoost = getSkinSpeedBoost(player)
-	local auraMultiplier = (stats and stats:FindFirstChild("AuraMultiplier") and stats.AuraMultiplier.Value) or 1
-	local rawMax = getRealSpeedFromLevel(lvl) * (1 + skinBoost) * auraMultiplier
+	local rawMax = getRealSpeedFromLevel(lvl) * (1 + skinBoost)
 
 	return math.clamp(rawMax, BASE_REAL_SPEED, MAX_REAL_SPEED_CAP)
 end
@@ -777,9 +981,11 @@ local function applyWalkSpeed(player)
 	end
 
 	local displayBase = getDisplaySpeedFromProgress(level.Value, exp.Value, expRequired.Value)
-	local auraMultiplier = (stats:FindFirstChild("AuraMultiplier") and stats.AuraMultiplier.Value) or 1
-	speedStat.Value = math.floor(displayBase * (1 + skinBoost) * auraMultiplier)
+	local groupRewardBonus = (stats:FindFirstChild("GroupRewardDisplaySpeedBonus") and stats.GroupRewardDisplaySpeedBonus.Value) or 0
+	speedStat.Value = math.floor(displayBase * (1 + skinBoost) + groupRewardBonus)
 end
+
+
 
 local function refreshOwnedExpBoost(player)
 	local expBoost = player:FindFirstChild("ExpBoost")
@@ -798,6 +1004,28 @@ local function refreshOwnedExpBoost(player)
 	end
 
 	expBoost.Value = highestOwned
+end
+
+local function refreshOwnedWinsBoost(player)
+	local stats = player:FindFirstChild("Stats")
+	local winsBoost = stats and stats:FindFirstChild("WinsGamepassBoost")
+	if not winsBoost then return end
+	if WINS_BOOST_GAMEPASS_ID <= 0 then winsBoost.Value = 1 return end
+	local ok, ownsPass = pcall(function()
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, WINS_BOOST_GAMEPASS_ID)
+	end)
+	winsBoost.Value = (ok and ownsPass) and 2 or 1
+end
+
+local function refreshOwnedRebirthBoost(player)
+	local stats = player:FindFirstChild("Stats")
+	local rebirthBoost = stats and stats:FindFirstChild("RebirthGamepassBoost")
+	if not rebirthBoost then return end
+	if REBIRTH_BOOST_GAMEPASS_ID <= 0 then rebirthBoost.Value = 1 return end
+	local ok, ownsPass = pcall(function()
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, REBIRTH_BOOST_GAMEPASS_ID)
+	end)
+	rebirthBoost.Value = (ok and ownsPass) and 2 or 1
 end
 
 local function createPlayerStats(player)
@@ -844,6 +1072,12 @@ local function createPlayerStats(player)
 	ensureValue(stats, "IntValue", "Multiplier", 1)
 	ensureValue(stats, "NumberValue", "SpeedBoost", 0)
 	ensureValue(stats, "NumberValue", "TitleMultiplier", 1)
+	ensureValue(stats, "NumberValue", "WinsGamepassBoost", 1)
+	ensureValue(stats, "NumberValue", "RebirthGamepassBoost", 1)
+	ensureValue(stats, "NumberValue", "ComboExpMultiplier", 1)
+	ensureValue(stats, "IntValue", "ComboCount", 0)
+	ensureValue(stats, "BoolValue", "GroupRewardClaimed", false)
+	ensureValue(stats, "NumberValue", "GroupRewardDisplaySpeedBonus", 0)
 	ensureValue(stats, "BoolValue", "UseCustomSpeed", false)
 	ensureValue(stats, "NumberValue", "SelectedRealSpeed", 0)
 	local maxRealValue = ensureValue(stats, "NumberValue", "MaxRealSpeed", BASE_REAL_SPEED)
@@ -1004,6 +1238,44 @@ local function getExpNeededToReachTargetProgress(currentLevel, currentExp, curre
 	return needed
 end
 
+local function grantSyncedDisplaySpeed(player, extraDisplaySpeed)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local stats = player:FindFirstChild("Stats")
+	if not leaderstats or not stats then return false end
+
+	local level = leaderstats:FindFirstChild("Level")
+	local speedStat = leaderstats:FindFirstChild("Speed")
+	local exp = stats:FindFirstChild("EXP")
+	local expRequired = stats:FindFirstChild("EXPRequired")
+
+	if not level or not level:IsA("IntValue") then return false end
+	if not speedStat or not speedStat:IsA("IntValue") then return false end
+	if not exp or not exp:IsA("NumberValue") then return false end
+	if not expRequired or not expRequired:IsA("NumberValue") then return false end
+
+	applyWalkSpeed(player)
+
+	local currentDisplayedSpeed = math.max(0, tonumber(speedStat.Value) or 0)
+	local rewardAmount = math.max(0, tonumber(extraDisplaySpeed) or 0)
+
+	local skinMultiplier = 1 + getSkinSpeedBoost(player)
+	local targetDisplayedSpeed = currentDisplayedSpeed + rewardAmount
+	local targetBaseDisplaySpeed = math.max(0, math.ceil(targetDisplayedSpeed / skinMultiplier))
+
+	local currentProgress = getProgressValue(level.Value, exp.Value, expRequired.Value)
+	local targetProgress = math.sqrt(targetBaseDisplaySpeed / 18.75)
+
+	if targetProgress > currentProgress then
+		local expToGrant = getExpNeededToReachTargetProgress(level.Value, exp.Value, expRequired.Value, targetProgress)
+		if expToGrant > 0 then
+			addExp(player, expToGrant)
+			return true
+		end
+	end
+
+	return false
+end
+
 local function grantSyncedSpeedProduct(player, productKey)
 	local info = SPEED_SHOP_PRODUCTS[productKey]
 	if not info then
@@ -1104,9 +1376,13 @@ local function migrateLegacyShopBonus(player)
 	applyWalkSpeed(player)
 end
 
+
+
 promptBoostRemote.OnServerEvent:Connect(function(player, requestedMultiplier)
 	local expBoost = player:FindFirstChild("ExpBoost")
 	if not expBoost then return end
+
+	refreshOwnedExpBoost(player)
 
 	local nextBoost = getNextBoost(expBoost.Value)
 	if not nextBoost or requestedMultiplier ~= nextBoost then return end
@@ -1114,6 +1390,14 @@ promptBoostRemote.OnServerEvent:Connect(function(player, requestedMultiplier)
 	local gamePassId = GAMEPASS_ID_BY_MULTIPLIER[nextBoost]
 	if not gamePassId or gamePassId <= 0 then
 		warn("Missing gamepass ID for multiplier:", nextBoost)
+		return
+	end
+
+	local ok, ownsPass = pcall(function()
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamePassId)
+	end)
+	if ok and ownsPass then
+		refreshOwnedExpBoost(player)
 		return
 	end
 
@@ -1133,20 +1417,53 @@ promptSpeedShopRemote.OnServerEvent:Connect(function(player, productKey)
 	MarketplaceService:PromptProductPurchase(player, info.productId)
 end)
 
+promptWinsShopRemote.OnServerEvent:Connect(function(player, productKey)
+	if typeof(productKey) ~= "string" then return end
+	local info = WINS_SHOP_PRODUCTS[productKey]
+	if not info then return end
+	if not info.productId or info.productId <= 0 then
+		warn("Missing wins shop product ID for", productKey)
+		return
+	end
+	MarketplaceService:PromptProductPurchase(player, info.productId)
+end)
+
+requestRevivePurchaseRemote.OnServerEvent:Connect(function(player, productId)
+	local pending = pendingRevives[player.UserId]
+	if not pending then return end
+	if pending.productId ~= productId then return end
+	MarketplaceService:PromptProductPurchase(player, productId)
+end)
+
+promptWinsBoostGamepassRemote.OnServerEvent:Connect(function(player)
+	if WINS_BOOST_GAMEPASS_ID <= 0 then
+		warn("Missing WINS_BOOST_GAMEPASS_ID")
+		return
+	end
+	MarketplaceService:PromptGamePassPurchase(player, WINS_BOOST_GAMEPASS_ID)
+end)
+
+promptRebirthBoostGamepassRemote.OnServerEvent:Connect(function(player)
+	if REBIRTH_BOOST_GAMEPASS_ID <= 0 then
+		warn("Missing REBIRTH_BOOST_GAMEPASS_ID")
+		return
+	end
+	MarketplaceService:PromptGamePassPurchase(player, REBIRTH_BOOST_GAMEPASS_ID)
+end)
+
 promptAuraPurchaseRemote.OnServerEvent:Connect(function(player, auraKey)
 	if typeof(auraKey) ~= "string" then return end
 	local aura = AURAS[auraKey]
-	if not aura or not aura.productId or aura.productId <= 0 then
-		warn("[AuraSystem] Missing productId for aura", auraKey)
+	if not aura or not aura.gamePassId or aura.gamePassId <= 0 then
+		warn("[AuraSystem] Missing gamePassId for aura", auraKey)
 		return
 	end
-	MarketplaceService:PromptProductPurchase(player, aura.productId)
+	MarketplaceService:PromptGamePassPurchase(player, aura.gamePassId)
 end)
 
 equipAuraRemote.OnServerEvent:Connect(function(player, auraKey)
 	if typeof(auraKey) ~= "string" then return end
-	local _, currentAura = ensureAuraStats(player)
-	if auraKey == currentAura.Value then
+	if auraKey == "None" or auraKey == "" then
 		equipAura(player, "None")
 		return
 	end
@@ -1155,19 +1472,66 @@ end)
 
 MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
 	if not player then return end
-	local boughtMultiplier = MULTIPLIER_BY_GAMEPASS_ID[gamePassId]
-	if not boughtMultiplier then return end
 
-	refreshOwnedExpBoost(player)
-	if wasPurchased then
-		notifyPlayer(player, "THANK YOU!", "Thanks for supporting the game. x" .. tostring(boughtMultiplier) .. " EXP boost unlocked!", "Info", 4.5, nil, {
-			rainbowTitle = true,
-			confetti = true,
-			confettiCount = 120,
-			soundId = "rbxassetid://1843520822",
-			iconKey = "Purchase",
-			scaleMultiplier = 1.8,
-		})
+	local boughtMultiplier = MULTIPLIER_BY_GAMEPASS_ID[gamePassId]
+	if boughtMultiplier then
+		refreshOwnedExpBoost(player)
+		if wasPurchased then
+			notifyPlayer(player, "THANK YOU!", "Thanks for supporting the game. x" .. tostring(boughtMultiplier) .. " EXP boost unlocked!", "Info", 4.5, nil, {
+				rainbowTitle = true,
+				confetti = true,
+				confettiCount = 120,
+				soundId = "rbxassetid://1843520822",
+				iconKey = "Purchase",
+				scaleMultiplier = 1.8,
+			})
+		end
+		return
+	end
+
+	if gamePassId == WINS_BOOST_GAMEPASS_ID then
+		refreshOwnedWinsBoost(player)
+		if wasPurchased then
+			notifyPlayer(player, "THANK YOU!", "2x Wins unlocked!", "Info", 4.5, nil, {
+				rainbowTitle = true,
+				confetti = true,
+				confettiCount = 120,
+				soundId = "rbxassetid://1843520822",
+				iconKey = "Purchase",
+				scaleMultiplier = 1.8,
+			})
+		end
+		return
+	end
+
+	if gamePassId == REBIRTH_BOOST_GAMEPASS_ID then
+		refreshOwnedRebirthBoost(player)
+		if wasPurchased then
+			notifyPlayer(player, "THANK YOU!", "2x Rebirth boost unlocked!", "Info", 4.5, nil, {
+				rainbowTitle = true,
+				confetti = true,
+				confettiCount = 120,
+				soundId = "rbxassetid://1843520822",
+				iconKey = "Purchase",
+				scaleMultiplier = 1.8,
+			})
+		end
+		return
+	end
+
+	local aura = AURA_BY_GAMEPASS_ID[gamePassId]
+	if aura then
+		refreshOwnedAuraGamepasses(player)
+		if wasPurchased then
+			notifyPlayer(player, "THANK YOU!", "Thanks for supporting the game. " .. aura.name .. " unlocked!", "Info", 4.5, nil, {
+				rainbowTitle = true,
+				confetti = true,
+				confettiCount = 120,
+				soundId = "rbxassetid://1843520822",
+				iconKey = "Purchase",
+				scaleMultiplier = 1.8,
+			})
+		end
 	end
 end)
 
@@ -1205,14 +1569,6 @@ MarketplaceService.ProcessReceipt = function(receiptInfo)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	local aura = AURA_BY_PRODUCT_ID[receiptInfo.ProductId]
-	if aura then
-		local granted = grantAuraPurchase(player, aura.key)
-		if granted then
-			return Enum.ProductPurchaseDecision.PurchaseGranted
-		end
-		return Enum.ProductPurchaseDecision.NotProcessedYet
-	end
 
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
@@ -1230,9 +1586,10 @@ jumpRemote.OnServerEvent:Connect(function(player)
 
 	jumps.Value += 1
 
-	local rebirthMult, gamepassExpMult, titleMult, stepMult = getPlayerMultipliers(player)
+	local comboCount, comboExpMult = updateComboForJump(player)
+	local rebirthMult, gamepassExpMult, titleMult, stepMult, auraExpMult = getPlayerMultipliers(player)
 	local expPotionMult = getExpPotionMultiplier(player)
-	local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * expPotionMult
+	local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * auraExpMult * comboExpMult * expPotionMult
 
 	addExp(player, gain)
 	expPopupRemote:FireClient(player, math.floor(gain))
@@ -1267,9 +1624,10 @@ surfaceInteractRemote.OnServerEvent:Connect(function(player, part, sourceType)
 	if math.random() > SURFACE_EXP_CHANCE then return end
 
 	local partMult = part:GetAttribute("ExpMultiplier") or 1
-	local rebirthMult, gamepassExpMult, titleMult, stepMult = getPlayerMultipliers(player)
+	local rebirthMult, gamepassExpMult, titleMult, stepMult, auraExpMult = getPlayerMultipliers(player)
+	local comboExpMult = getComboExpMultiplier(player)
 	local expPotionMult = getExpPotionMultiplier(player)
-	local gain = baseExp * partMult * rebirthMult * gamepassExpMult * titleMult * stepMult * expPotionMult
+	local gain = baseExp * partMult * rebirthMult * gamepassExpMult * titleMult * stepMult * auraExpMult * comboExpMult * expPotionMult
 
 	addExp(player, gain)
 	expPopupRemote:FireClient(player, math.floor(gain))
@@ -1313,9 +1671,10 @@ task.spawn(function()
 								local v = root.AssemblyLinearVelocity
 								root.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, bouncePower), v.Z)
 
-								local rebirthMult, gamepassExpMult, titleMult, stepMult = getPlayerMultipliers(plr)
+								local comboCount, comboExpMult = updateComboForJump(plr)
+								local rebirthMult, gamepassExpMult, titleMult, stepMult, auraExpMult = getPlayerMultipliers(plr)
 								local expPotionMult = getExpPotionMultiplier(plr)
-								local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * expPotionMult * expMult
+								local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * auraExpMult * comboExpMult * expPotionMult * expMult
 
 								addExp(plr, gain)
 								expPopupRemote:FireClient(plr, math.floor(gain))
@@ -1345,6 +1704,12 @@ setSpeedRemote.OnServerEvent:Connect(function(player, requestedSpeed)
 	notifyPlayer(player, "Custom Speed Set", "Custom speed set to " .. formatNumber(selected.Value) .. ".", "Info", 3.2, nil, {
 		iconKey = "CustomSpeed",
 	})
+end)
+
+grantDisplaySpeedBindable.Event:Connect(function(player, amount)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then return end
+	if typeof(amount) ~= "number" then return end
+	grantSyncedDisplaySpeed(player, amount)
 end)
 
 local function getSpawnPart()
@@ -1509,8 +1874,21 @@ end)
 local function onPlayerAdded(player)
 	createPlayerStats(player)
 	refreshOwnedExpBoost(player)
+	refreshOwnedWinsBoost(player)
+	refreshOwnedRebirthBoost(player)
+	refreshOwnedAuraGamepasses(player)
 	migrateLegacyShopBonus(player)
 	potionFiveMinuteWarnings[player] = {}
+
+	-- Re-check gamepass ownership shortly after join in case initial cache/state is late.
+	task.delay(3, function()
+		if player.Parent then
+			refreshOwnedExpBoost(player)
+			refreshOwnedWinsBoost(player)
+			refreshOwnedRebirthBoost(player)
+			refreshOwnedAuraGamepasses(player)
+		end
+	end)
 
 	local leaderstats = player:WaitForChild("leaderstats")
 	local stats = player:WaitForChild("Stats")
@@ -1534,8 +1912,17 @@ local function onPlayerAdded(player)
 	stats:WaitForChild("SpeedPotionEndTime").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("LevelUpSpeedBoostEndTime").Changed:Connect(function() applyWalkSpeed(player) end)
 	stats:WaitForChild("AuraMultiplier").Changed:Connect(function() applyWalkSpeed(player) end)
+	stats:WaitForChild("GroupRewardDisplaySpeedBonus").Changed:Connect(function() applyWalkSpeed(player) end)
 
-	player.CharacterAdded:Connect(function()
+	player.CharacterAdded:Connect(function(character)
+		local humanoid = character:WaitForChild("Humanoid")
+		humanoid.Died:Connect(function()
+			task.delay(0.1, function()
+				if player.Parent then
+					promptRevive(player)
+				end
+			end)
+		end)
 		task.wait(0.2)
 		applyWalkSpeed(player)
 		local _, currentAura = ensureAuraStats(player)
@@ -1554,10 +1941,19 @@ Players.PlayerRemoving:Connect(function(player)
 	trampolineCooldown[player] = nil
 	winCooldown[player] = nil
 	potionFiveMinuteWarnings[player] = nil
+	comboState[player] = nil
 end)
 
 task.spawn(function()
 	while true do
+		local tickNow = tick()
+		for _, player in ipairs(Players:GetPlayers()) do
+			local state = comboState[player]
+			if state and tickNow - state.lastJump > COMBO_RESET_TIME then
+				resetComboState(player)
+			end
+		end
+
 		local now = os.time()
 		for _, player in ipairs(Players:GetPlayers()) do
 			local stats = player:FindFirstChild("Stats")
