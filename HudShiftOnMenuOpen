@@ -5,7 +5,7 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- Increase this if you want the HUD to move further down.
-local SHIFT_Y = 137
+local SHIFT_Y = 189 --137
 
 local OPEN_TWEEN = TweenInfo.new(0.36, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local CLOSE_TWEEN = TweenInfo.new(0.30, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -15,6 +15,7 @@ local trackedMenus = {
 	{ guiName = "TitleGUI", frameName = "MainFrame" },
 	{ guiName = "SkinGUI", frameName = "MainFrame" },
 	{ guiName = "KeyboardSoundGUI", frameName = "MainFrame" },
+	{ guiName = "InventoryGUI", frameName = "MainFrame" },
 }
 
 local targets = {}
