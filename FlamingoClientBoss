@@ -1,0 +1,226 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+
+local SOURCE_FOLDER = ReplicatedStorage:WaitForChild("ClientBosses")
+local SOURCE_MODEL = SOURCE_FOLDER:WaitForChild("Flamingo")
+local LOCAL_MODEL_NAME = "_LocalFlamingoBoss"
+
+local existing = Workspace:FindFirstChild(LOCAL_MODEL_NAME)
+if existing then
+	existing:Destroy()
+end
+
+local boss = SOURCE_MODEL:Clone()
+boss.Name = LOCAL_MODEL_NAME
+boss.Parent = Workspace
+
+local humanoid = boss:WaitForChild("Humanoid")
+local root = boss:WaitForChild("HumanoidRootPart")
+boss.PrimaryPart = root
+
+local detectionZoneName = tostring(boss:GetAttribute("DetectionZoneName") or "FlamingoDetectionZone")
+local returnPartName = tostring(boss:GetAttribute("ReturnPartName") or "FlamingoReturnPart")
+
+local detectionZone = Workspace:WaitForChild(detectionZoneName)
+local returnPart = Workspace:WaitForChild(returnPartName)
+
+local UPDATE_RATE = tonumber(boss:GetAttribute("UpdateRate")) or 0.10
+local WALK_SPEED = tonumber(boss:GetAttribute("WalkSpeed")) or 18
+local KILL_DISTANCE = tonumber(boss:GetAttribute("KillDistance")) or 4
+local PATROL_WAIT = tonumber(boss:GetAttribute("PatrolWait")) or 1.1
+local PATROL_REACHED_DISTANCE = tonumber(boss:GetAttribute("PatrolReachedDistance")) or 3
+
+humanoid.WalkSpeed = WALK_SPEED
+
+for _, obj in ipairs(boss:GetDescendants()) do
+	if obj:IsA("BasePart") then
+		obj.Anchored = false
+	end
+end
+
+local animator = humanoid:FindFirstChildOfClass("Animator")
+if not animator then
+	animator = Instance.new("Animator")
+	animator.Parent = humanoid
+end
+
+local idleTrack
+local chaseTrack
+local currentState = nil
+local lastUpdate = 0
+local currentMode = "Idle"
+local patrolWaypoints = {}
+local currentWaypointIndex = 1
+local patrolWaitUntil = 0
+
+local function normalizeAnimationId(value)
+	if value == nil then return nil end
+	local raw = tostring(value):gsub("%s+", "")
+	if raw == "" then return nil end
+	if raw:find("rbxassetid://", 1, true) then return raw end
+	local n = tonumber(raw:match("%d+"))
+	if n and n > 0 then
+		return "rbxassetid://" .. tostring(math.floor(n))
+	end
+	return nil
+end
+
+local function loadTrack(attributeName)
+	local animId = normalizeAnimationId(boss:GetAttribute(attributeName))
+	if not animId then return nil end
+	local anim = Instance.new("Animation")
+	anim.AnimationId = animId
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(anim)
+	end)
+	if ok and track then
+		track.Looped = true
+		return track
+	end
+	warn("[FlamingoClientBoss] Failed to load animation:", attributeName, animId)
+	return nil
+end
+
+local function reloadAnimations()
+	if idleTrack then pcall(function() idleTrack:Stop() end) pcall(function() idleTrack:Destroy() end) end
+	if chaseTrack then pcall(function() chaseTrack:Stop() end) pcall(function() chaseTrack:Destroy() end) end
+	idleTrack = loadTrack("IdleAnimationId")
+	chaseTrack = loadTrack("ChaseAnimationId")
+	currentState = nil
+end
+
+local function playState(stateName)
+	if currentState == stateName then return end
+	currentState = stateName
+	if idleTrack then pcall(function() idleTrack:Stop(0.12) end) end
+	if chaseTrack then pcall(function() chaseTrack:Stop(0.12) end) end
+	if stateName == "Chase" or stateName == "Patrol" then
+		if chaseTrack then pcall(function() chaseTrack:Play(0.12) end)
+		elseif idleTrack then pcall(function() idleTrack:Play(0.12) end) end
+	else
+		if idleTrack then pcall(function() idleTrack:Play(0.12) end) end
+	end
+end
+
+reloadAnimations()
+playState("Idle")
+
+local function isPointInsidePart(part, worldPosition)
+	local localPos = part.CFrame:PointToObjectSpace(worldPosition)
+	local halfSize = part.Size * 0.5
+	return math.abs(localPos.X) <= halfSize.X
+		and math.abs(localPos.Y) <= halfSize.Y
+		and math.abs(localPos.Z) <= halfSize.Z
+end
+
+local function clampPointToZone(position)
+	local localPos = detectionZone.CFrame:PointToObjectSpace(position)
+	local half = detectionZone.Size * 0.5
+	local margin = 6
+	local clamped = Vector3.new(
+		math.clamp(localPos.X, -half.X + margin, half.X - margin),
+		0,
+		math.clamp(localPos.Z, -half.Z + margin, half.Z - margin)
+	)
+	return detectionZone.CFrame:PointToWorldSpace(clamped)
+end
+
+local function buildPatrolWaypoints(center)
+	center = clampPointToZone(center)
+	local right = detectionZone.CFrame.RightVector * 8
+	local forward = detectionZone.CFrame.LookVector * 10
+	return {
+		clampPointToZone(center + right),
+		clampPointToZone(center + forward),
+		clampPointToZone(center - right),
+		clampPointToZone(center - forward),
+	}
+end
+
+local function teleportHome()
+	boss:PivotTo(returnPart.CFrame + Vector3.new(0, 3, 0))
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	humanoid:MoveTo(root.Position)
+	patrolWaypoints = buildPatrolWaypoints(root.Position)
+	currentWaypointIndex = 1
+	patrolWaitUntil = 0
+	currentMode = "Idle"
+	playState("Idle")
+end
+
+local function beginPatrol(centerPosition)
+	currentMode = "Patrol"
+	playState("Patrol")
+	patrolWaypoints = buildPatrolWaypoints(centerPosition)
+	currentWaypointIndex = 1
+	patrolWaitUntil = tick() + 0.25
+	if patrolWaypoints[currentWaypointIndex] then
+		humanoid:MoveTo(patrolWaypoints[currentWaypointIndex])
+	end
+end
+
+teleportHome()
+
+RunService.Heartbeat:Connect(function()
+	if not boss.Parent or humanoid.Health <= 0 then return end
+	local now = tick()
+	if now - lastUpdate < UPDATE_RATE then return end
+	lastUpdate = now
+
+	local character = player.Character
+	local targetRoot = character and character:FindFirstChild("HumanoidRootPart")
+	local targetHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local playerInZone = targetRoot and targetHumanoid and targetHumanoid.Health > 0 and isPointInsidePart(detectionZone, targetRoot.Position)
+
+	if playerInZone then
+		currentMode = "Chase"
+		playState("Chase")
+		local distance = (targetRoot.Position - root.Position).Magnitude
+		if distance <= KILL_DISTANCE then
+			targetHumanoid.Health = 0
+			return
+		end
+		humanoid.WalkSpeed = tonumber(boss:GetAttribute("WalkSpeed")) or WALK_SPEED
+		humanoid:MoveTo(targetRoot.Position)
+		return
+	end
+
+	if not isPointInsidePart(detectionZone, root.Position) then
+		teleportHome()
+		return
+	end
+
+	if currentMode ~= "Patrol" then
+		beginPatrol(root.Position)
+	end
+
+	playState("Patrol")
+	if now < patrolWaitUntil then return end
+
+	local waypoint = patrolWaypoints[currentWaypointIndex]
+	if not waypoint then
+		patrolWaypoints = buildPatrolWaypoints(root.Position)
+		currentWaypointIndex = 1
+		waypoint = patrolWaypoints[currentWaypointIndex]
+	end
+
+	local dist = (root.Position - waypoint).Magnitude
+	if dist <= PATROL_REACHED_DISTANCE then
+		currentWaypointIndex += 1
+		if currentWaypointIndex > #patrolWaypoints then
+			currentWaypointIndex = 1
+		end
+		patrolWaitUntil = now + PATROL_WAIT
+		local nextPoint = patrolWaypoints[currentWaypointIndex]
+		if nextPoint then
+			humanoid:MoveTo(nextPoint)
+		end
+	else
+		humanoid:MoveTo(waypoint)
+	end
+end)
