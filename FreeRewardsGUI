@@ -1,0 +1,182 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local AvatarEditorService = game:GetService("AvatarEditorService")
+local GroupService = game:GetService("GroupService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local stats = player:WaitForChild("Stats")
+
+local GROUP_ID = 0 -- replace with your group id
+
+local promptGroupJoinRemote = ReplicatedStorage:WaitForChild("PromptGroupJoin")
+local claimFavoriteRewardRemote = ReplicatedStorage:WaitForChild("ClaimFavoriteReward")
+
+local mainMenuButtons = playerGui:WaitForChild("MainMenuButtons")
+local toggleButton = mainMenuButtons:WaitForChild("FreeRewardsToggleButton")
+
+local gui = playerGui:WaitForChild("FreeRewardsGUI")
+local mainFrame = gui:WaitForChild("MainFrame")
+local closeButton = mainFrame:WaitForChild("CloseButton")
+local infoLabel = mainFrame:WaitForChild("InfoLabel")
+local claimGroupButton = mainFrame:WaitForChild("ClaimGroupButton")
+local claimFavoriteButton = mainFrame:WaitForChild("ClaimFavoriteButton")
+
+local groupClaimed = stats:WaitForChild("GroupRewardClaimed")
+local favoriteClaimed = stats:WaitForChild("FavoriteRewardClaimed")
+
+local openPos = mainFrame.Position
+local closedPos = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale + 0.06, openPos.Y.Offset)
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+local animating = false
+mainFrame.Visible = false
+
+local function updateGuiState()
+	infoLabel.Text = "Free Rewards"
+
+	if groupClaimed.Value then
+		claimGroupButton.Text = "GROUP CLAIMED"
+		claimGroupButton.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
+	else
+		claimGroupButton.Text = "JOIN GROUP"
+		claimGroupButton.BackgroundColor3 = Color3.fromRGB(70, 190, 80)
+	end
+
+	if favoriteClaimed.Value then
+		claimFavoriteButton.Text = "FAVORITE CLAIMED"
+		claimFavoriteButton.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
+	elseif groupClaimed.Value then
+		claimFavoriteButton.Text = "FAVORITE GAME"
+		claimFavoriteButton.BackgroundColor3 = Color3.fromRGB(255, 191, 73)
+	else
+		claimFavoriteButton.Text = "LOCKED"
+		claimFavoriteButton.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
+	end
+end
+
+local function updateToggleVisibility()
+	toggleButton.Visible = not (groupClaimed.Value and favoriteClaimed.Value)
+	if groupClaimed.Value and favoriteClaimed.Value and mainFrame.Visible then
+		mainFrame.Visible = false
+		mainFrame.Position = openPos
+		uiScale.Scale = 1
+		animating = false
+	end
+end
+
+local function openFrame()
+	if animating or mainFrame.Visible then return end
+	animating = true
+	updateGuiState()
+	mainFrame.Visible = true
+	mainFrame.Position = closedPos
+	uiScale.Scale = 0.94
+
+	local tween1 = TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = openPos })
+	local tween2 = TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+	tween1:Play()
+	tween2:Play()
+	tween1.Completed:Connect(function()
+		animating = false
+	end)
+end
+
+local function closeFrame()
+	if animating or not mainFrame.Visible then return end
+	animating = true
+	local tween1 = TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = closedPos })
+	local tween2 = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.94 })
+	tween1:Play()
+	tween2:Play()
+	tween1.Completed:Connect(function()
+		mainFrame.Visible = false
+		mainFrame.Position = openPos
+		uiScale.Scale = 1
+		animating = false
+	end)
+end
+
+local function promptFavorite()
+	local successAccess = pcall(function()
+		AvatarEditorService:PromptAllowInventoryReadAccess()
+	end)
+
+	local alreadyFavorite = false
+	pcall(function()
+		alreadyFavorite = AvatarEditorService:GetFavoriteAsync(game.PlaceId, Enum.AvatarItemType.Asset)
+	end)
+
+	if alreadyFavorite then
+		claimFavoriteRewardRemote:FireServer()
+		return
+	end
+
+	local completedConnection
+	completedConnection = AvatarEditorService.PromptSetFavoriteCompleted:Connect(function(result)
+		if completedConnection then
+			completedConnection:Disconnect()
+		end
+		if result == Enum.AvatarPromptResult.Success then
+			claimFavoriteRewardRemote:FireServer()
+		end
+	end)
+
+	pcall(function()
+		AvatarEditorService:PromptSetFavorite(game.PlaceId, Enum.AvatarItemType.Asset, true)
+	end)
+end
+
+toggleButton.MouseButton1Click:Connect(function()
+	if mainFrame.Visible then
+		closeFrame()
+	else
+		openFrame()
+	end
+end)
+
+closeButton.MouseButton1Click:Connect(closeFrame)
+
+claimGroupButton.MouseButton1Click:Connect(function()
+	if groupClaimed.Value then return end
+	if GROUP_ID <= 0 then
+		warn("[FreeRewardsGUI] Set GROUP_ID in FreeRewardsGUI_Favorites_v1.client.lua")
+		return
+	end
+	task.spawn(function()
+		pcall(function()
+			GroupService:PromptJoinAsync(GROUP_ID)
+		end)
+	end)
+end)
+
+claimFavoriteButton.MouseButton1Click:Connect(function()
+	if favoriteClaimed.Value or not groupClaimed.Value then return end
+	promptFavorite()
+end)
+
+groupClaimed.Changed:Connect(function()
+	updateGuiState()
+	updateToggleVisibility()
+end)
+favoriteClaimed.Changed:Connect(function()
+	updateGuiState()
+	updateToggleVisibility()
+end)
+
+updateGuiState()
+updateToggleVisibility()
+
+if not (groupClaimed.Value and favoriteClaimed.Value) then
+	task.delay(1.5, function()
+		if not mainFrame.Visible then
+			openFrame()
+		end
+	end)
+end
