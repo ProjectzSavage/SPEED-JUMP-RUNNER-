@@ -358,6 +358,8 @@ local function updateBoostTopLabelOnly()
 
 	local titleMult = statsFolder:FindFirstChild("TitleMultiplier")
 	local stepMultiplierValue = statsFolder:FindFirstChild("StepMultiplier")
+	local auraMultiplierValue = statsFolder:FindFirstChild("AuraMultiplier")
+	local comboMultiplierValue = statsFolder:FindFirstChild("ComboExpMultiplier")
 	local expPotionMultiplierValue = statsFolder:FindFirstChild("ExpPotionMultiplier")
 	local expPotionEndTimeValue = statsFolder:FindFirstChild("ExpPotionEndTime")
 
@@ -365,14 +367,26 @@ local function updateBoostTopLabelOnly()
 	local rebirthBoost = rebirthMultiplier.Value
 	local titleBoost = (titleMult and titleMult.Value) or 1
 	local stepMultiplier = (stepMultiplierValue and stepMultiplierValue.Value) or 1
+	local auraBoost = (auraMultiplierValue and auraMultiplierValue.Value) or 1
+	local comboBoost = (comboMultiplierValue and comboMultiplierValue.Value) or 1
 
 	local expPotionBoost = 1
 	if expPotionMultiplierValue and expPotionEndTimeValue and expPotionEndTimeValue.Value > os.time() then
 		expPotionBoost = math.max(1, expPotionMultiplierValue.Value)
 	end
 
-	local totalExpBoost = gamepassBoost * rebirthBoost * titleBoost * stepMultiplier * expPotionBoost
+	local totalExpBoost = gamepassBoost * rebirthBoost * titleBoost * stepMultiplier * auraBoost * comboBoost * expPotionBoost
 	boostTopLabel.Text = string.format("x%.2f EXP BOOST", totalExpBoost)
+
+	--local auraMultLabel = main:FindFirstChild("AuraMultLabel")
+	--if auraMultLabel then
+	--	auraMultLabel.Text = string.format("Aura x%.2f", auraBoost)
+	--end
+
+	--local comboMultLabel = main:FindFirstChild("ComboMultLabel")
+	--if comboMultLabel then
+	--	comboMultLabel.Text = string.format("Combo x%.2f", comboBoost)
+	--end
 end
 
 local function updateGui()
@@ -539,6 +553,16 @@ local function hookStats()
 	local levelUpSpeedBoostEndTime = statsFolder:FindFirstChild("LevelUpSpeedBoostEndTime")
 	if levelUpSpeedBoostEndTime then
 		levelUpSpeedBoostEndTime.Changed:Connect(updateGui)
+	end
+
+	local auraMultiplier = statsFolder:FindFirstChild("AuraMultiplier")
+	if auraMultiplier then
+		auraMultiplier.Changed:Connect(updateGui)
+	end
+
+	local comboMultiplier = statsFolder:FindFirstChild("ComboExpMultiplier")
+	if comboMultiplier then
+		comboMultiplier.Changed:Connect(updateGui)
 	end
 
 	local speedPotionMultiplier = statsFolder:FindFirstChild("SpeedPotionMultiplier")
