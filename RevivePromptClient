@@ -1,0 +1,79 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local promptReviveRemote = ReplicatedStorage:WaitForChild("PromptReviveOffer")
+local requestRevivePurchaseRemote = ReplicatedStorage:WaitForChild("RequestRevivePurchase")
+
+local gui = playerGui:WaitForChild("ReviveGUI")
+local mainFrame = gui:WaitForChild("MainFrame")
+local titleLabel = mainFrame:WaitForChild("TitleLabel")
+local infoLabel = mainFrame:WaitForChild("InfoLabel")
+local reviveButton = mainFrame:WaitForChild("ReviveButton")
+local priceLabel = reviveButton:WaitForChild("PriceLabel")
+local timerBarBack = mainFrame:WaitForChild("TimerBarBack")
+local timerBarFill = timerBarBack:WaitForChild("TimerBarFill")
+local closeButton = mainFrame:FindFirstChild("CloseButton")
+
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+mainFrame.Visible = false
+
+local activePayload = nil
+local activeToken = 0
+
+local function closePopup()
+	activeToken += 1
+	mainFrame.Visible = false
+	timerBarFill.Size = UDim2.new(1, 0, 1, 0)
+	activePayload = nil
+end
+
+local function openPopup(payload)
+	activeToken += 1
+	local myToken = activeToken
+	activePayload = payload
+
+	titleLabel.Text = payload.title or "Revive?"
+	infoLabel.Text = payload.info or "Buy a revive before time runs out."
+	priceLabel.Text = tostring(payload.price or 0)
+
+	mainFrame.Visible = true
+	uiScale.Scale = 0.9
+	TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	}):Play()
+
+	timerBarFill.Size = UDim2.new(1, 0, 1, 0)
+	local duration = tonumber(payload.duration) or 8
+	local tween = TweenService:Create(timerBarFill, TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, 0, 1, 0),
+	})
+	tween:Play()
+	tween.Completed:Connect(function()
+		if myToken ~= activeToken then return end
+		closePopup()
+	end)
+end
+
+reviveButton.MouseButton1Click:Connect(function()
+	if not activePayload then return end
+	requestRevivePurchaseRemote:FireServer(activePayload.productId)
+end)
+
+if closeButton then
+	closeButton.MouseButton1Click:Connect(closePopup)
+end
+
+promptReviveRemote.OnClientEvent:Connect(function(payload)
+	if typeof(payload) ~= "table" then return end
+	openPopup(payload)
+end)
