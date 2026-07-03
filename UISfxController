@@ -1,0 +1,116 @@
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local SoundService = game:GetService("SoundService")
+local ContentProvider = game:GetService("ContentProvider")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- EDIT THESE IDS
+local HOVER_SOUND_ID = "rbxassetid://10066942189"
+local CLICK_SOUND_ID = "rbxassetid://139719503904449"
+local ROBUX_CLICK_SOUND_ID = "rbxassetid://84795270640054"
+local PURCHASE_SUCCESS_SOUND_ID = "rbxassetid://112283037672337"
+
+local pools = {}
+local connected = {}
+
+local function buildPool(key, soundId, volume, count)
+	if not soundId or soundId == "" or soundId == "rbxassetid://0" then return end
+	local pool = {}
+	for i = 1, count do
+		local sound = Instance.new("Sound")
+		sound.Name = key .. "_" .. i
+		sound.SoundId = soundId
+		sound.Volume = volume
+		sound.Parent = SoundService
+		table.insert(pool, sound)
+	end
+	ContentProvider:PreloadAsync(pool)
+	pools[key] = pool
+end
+
+local function playPooled(key)
+	local pool = pools[key]
+	if not pool then return end
+	for _, sound in ipairs(pool) do
+		if not sound.IsPlaying then
+			sound.TimePosition = 0
+			sound:Play()
+			return
+		end
+	end
+	local first = pool[1]
+	if first then
+		first:Stop()
+		first.TimePosition = 0
+		first:Play()
+	end
+end
+
+buildPool("Hover", HOVER_SOUND_ID, 0.45, 8)
+buildPool("Click", CLICK_SOUND_ID, 0.55, 8)
+buildPool("RobuxClick", ROBUX_CLICK_SOUND_ID, 0.8, 6)
+buildPool("PurchaseSuccess", PURCHASE_SUCCESS_SOUND_ID, 1, 4)
+
+local function isRobuxButton(button)
+	if button:GetAttribute("RobuxButton") == true then return true end
+	local name = string.lower(button.Name)
+	return name:find("robux")
+		or name:find("buy")
+		or name:find("premium")
+		or name:find("price")
+		or name:find("offer")
+		or name:find("product")
+end
+
+local function tryConnect(button)
+	if connected[button] then return end
+	if not (button:IsA("TextButton") or button:IsA("ImageButton")) then return end
+	connected[button] = true
+
+	button.MouseEnter:Connect(function()
+		playPooled("Hover")
+	end)
+
+	button.MouseButton1Click:Connect(function()
+		if isRobuxButton(button) then
+			playPooled("RobuxClick")
+		else
+			playPooled("Click")
+		end
+	end)
+end
+
+local function scanGui(gui)
+	for _, obj in ipairs(gui:GetDescendants()) do
+		tryConnect(obj)
+	end
+	gui.DescendantAdded:Connect(tryConnect)
+end
+
+for _, gui in ipairs(playerGui:GetChildren()) do
+	if gui:IsA("ScreenGui") then
+		scanGui(gui)
+	end
+end
+
+playerGui.ChildAdded:Connect(function(gui)
+	if gui:IsA("ScreenGui") then
+		task.defer(function()
+			scanGui(gui)
+		end)
+	end
+end)
+
+MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, isPurchased)
+	if userId == player.UserId and isPurchased then
+		playPooled("PurchaseSuccess")
+	end
+end)
+
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(p, gamePassId, wasPurchased)
+	if p == player and wasPurchased then
+		playPooled("PurchaseSuccess")
+	end
+end)
