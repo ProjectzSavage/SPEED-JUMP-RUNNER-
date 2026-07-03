@@ -1,0 +1,13 @@
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local levelExpGui = playerGui:WaitForChild("LevelExpGUI")
+local levelMain = levelExpGui:WaitForChild("MainFrame")
+local speedShopButton = levelMain:WaitForChild("SpeedShopButton")
+
+local speedShopGui = playerGui:WaitForChild("SpeedShopGUI")
+local shopFrame = speedShopGui:WaitForChild("ShopFrame")
+
+speedShopButton.MouseButton1Click:Connect(function()
+	shopFrame.Visible = not shopFrame.Visible
+end)
