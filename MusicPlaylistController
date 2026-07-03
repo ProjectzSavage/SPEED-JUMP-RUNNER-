@@ -1,0 +1,128 @@
+local Players = game:GetService("Players")
+local SoundService = game:GetService("SoundService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local SONG_IDS = {
+	"rbxassetid://132575056090579",
+	"rbxassetid://99445078556609",
+	"rbxassetid://121336636707861",
+}
+
+local PLAY_IMAGE = "rbxassetid://82901158982232"
+local STOP_IMAGE = "rbxassetid://126488205606179"
+local VOLUME = 0.1
+local AUTOPLAY = true
+
+local button = nil
+local mainMenuButtons = playerGui:FindFirstChild("MainMenuButtons")
+if mainMenuButtons then
+	button = mainMenuButtons:FindFirstChild("MusicToggleButton", true)
+end
+if not button then
+	local musicGui = playerGui:WaitForChild("MusicPlayerGUI")
+	button = musicGui and musicGui:FindFirstChild("MusicToggleButton", true)
+end
+if not button then
+	warn("[MusicPlaylistController] MusicToggleButton not found")
+	return
+end
+
+local sound = SoundService:FindFirstChild("MusicPlaylistSound")
+if not sound then
+	sound = Instance.new("Sound")
+	sound.Name = "MusicPlaylistSound"
+	sound.Looped = false
+	sound.Volume = VOLUME
+	sound.Parent = SoundService
+end
+
+local currentIndex = 1
+local playing = false
+local paused = false
+local token = 0
+
+local function applyButtonVisual()
+	if button:IsA("ImageButton") then
+		button.Image = playing and STOP_IMAGE or PLAY_IMAGE
+	elseif button:IsA("TextButton") then
+		button.Text = playing and "STOP" or "PLAY"
+	end
+end
+
+local function playCurrentSong(myToken)
+	while playing and myToken == token do
+		if #SONG_IDS == 0 then
+			warn("[MusicPlaylistController] SONG_IDS is empty")
+			playing = false
+			paused = false
+			applyButtonVisual()
+			return
+		end
+
+		sound.SoundId = SONG_IDS[currentIndex]
+		sound.TimePosition = 0
+		sound:Play()
+		repeat
+			task.wait(0.1)
+		until (not sound.IsPlaying and not paused) or not playing or myToken ~= token
+
+		if not playing or myToken ~= token then
+			break
+		end
+
+		if not paused then
+			currentIndex += 1
+			if currentIndex > #SONG_IDS then
+				currentIndex = 1
+			end
+		end
+	end
+end
+
+local function startOrResumeMusic()
+	if #SONG_IDS == 0 then
+		warn("[MusicPlaylistController] SONG_IDS is empty")
+		return
+	end
+
+	if paused then
+		playing = true
+		paused = false
+		applyButtonVisual()
+		pcall(function() sound:Resume() end)
+		if not sound.IsPlaying then
+			sound:Play()
+		end
+		return
+	end
+
+	if playing then return end
+	playing = true
+	paused = false
+	token += 1
+	applyButtonVisual()
+	task.spawn(playCurrentSong, token)
+end
+
+local function pauseMusic()
+	if not playing then return end
+	playing = false
+	paused = true
+	pcall(function() sound:Pause() end)
+	applyButtonVisual()
+end
+
+button.MouseButton1Click:Connect(function()
+	if playing then
+		pauseMusic()
+	else
+		startOrResumeMusic()
+	end
+end)
+
+applyButtonVisual()
+if AUTOPLAY then
+	task.defer(startOrResumeMusic)
+end
