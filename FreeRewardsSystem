@@ -1,0 +1,207 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local GROUP_ID = 16206015 -- replace with your group id
+local GROUP_REWARD_DURATION = 180 -- 3 minutes
+local FAVORITE_REWARD_DURATION = 180 -- 3 minutes
+local TUTORIAL_REWARD_DURATION = 180 -- 3 minutes
+local STARTER_LEVEL = 5
+
+local function getOrCreateRemote(name)
+	local remote = ReplicatedStorage:FindFirstChild(name)
+	if not remote then
+		remote = Instance.new("RemoteEvent")
+		remote.Name = name
+		remote.Parent = ReplicatedStorage
+	end
+	return remote
+end
+
+local claimFavoriteRewardRemote = getOrCreateRemote("ClaimFavoriteReward")
+local promptGroupJoinRemote = getOrCreateRemote("PromptGroupJoin")
+local showNotificationRemote = getOrCreateRemote("ShowNotification")
+local completeTutorialRewardRemote = getOrCreateRemote("CompleteTutorialReward")
+
+local function expRequiredForLevel(level)
+	return math.floor(100 + (level ^ 1.45) * 35)
+end
+
+local function ensureValue(parent, className, name, defaultValue)
+	local v = parent:FindFirstChild(name)
+	if not v then
+		v = Instance.new(className)
+		v.Name = name
+		v.Value = defaultValue
+		v.Parent = parent
+	end
+	return v
+end
+
+local function ensureRewardStats(player)
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+	end
+
+	ensureValue(leaderstats, "IntValue", "Level", 0)
+	ensureValue(stats, "NumberValue", "EXP", 0)
+	ensureValue(stats, "NumberValue", "EXPRequired", expRequiredForLevel(0))
+
+	local groupClaimed = ensureValue(stats, "BoolValue", "GroupRewardClaimed", false)
+	local favoriteClaimed = ensureValue(stats, "BoolValue", "FavoriteRewardClaimed", false)
+	local tutorialCompleted = ensureValue(stats, "BoolValue", "TutorialCompleted", false)
+
+	ensureValue(stats, "NumberValue", "LocalWinsPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "LocalWinsPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "LocalWinsPotionName", "")
+	ensureValue(stats, "StringValue", "LocalWinsPotionIcon", "")
+	ensureValue(stats, "NumberValue", "WinsPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "WinsPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "WinsPotionName", "")
+	ensureValue(stats, "StringValue", "WinsPotionIcon", "")
+
+	ensureValue(stats, "NumberValue", "LocalExpPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "LocalExpPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "LocalExpPotionName", "")
+	ensureValue(stats, "StringValue", "LocalExpPotionIcon", "")
+	ensureValue(stats, "NumberValue", "ExpPotionMultiplier", 1)
+	ensureValue(stats, "NumberValue", "ExpPotionEndTime", 0)
+	ensureValue(stats, "StringValue", "ExpPotionName", "")
+	ensureValue(stats, "StringValue", "ExpPotionIcon", "")
+
+	return leaderstats, stats, groupClaimed, favoriteClaimed, tutorialCompleted
+end
+
+local function notifyPlayer(player, title, message, kind, duration, extra)
+	local payload = {
+		title = title,
+		message = message,
+		kind = kind or "Info",
+		duration = duration or 3.5,
+	}
+	if type(extra) == "table" then
+		for k, v in pairs(extra) do
+			payload[k] = v
+		end
+	end
+	showNotificationRemote:FireClient(player, payload)
+end
+
+local function grantLevelFiveStarter(player)
+	local leaderstats, stats = ensureRewardStats(player)
+	local level = leaderstats:FindFirstChild("Level")
+	local exp = stats:FindFirstChild("EXP")
+	local expRequired = stats:FindFirstChild("EXPRequired")
+	if level and level.Value < STARTER_LEVEL then
+		level.Value = STARTER_LEVEL
+		if exp then exp.Value = 0 end
+		if expRequired then expRequired.Value = expRequiredForLevel(STARTER_LEVEL) end
+	end
+end
+
+local function grantWinsPotion(player, multiplier, durationSeconds, potionName, iconId)
+	local _, stats = ensureRewardStats(player)
+	local now = os.time()
+	local localMult = stats:FindFirstChild("LocalWinsPotionMultiplier")
+	local localEnd = stats:FindFirstChild("LocalWinsPotionEndTime")
+	local localName = stats:FindFirstChild("LocalWinsPotionName")
+	local localIcon = stats:FindFirstChild("LocalWinsPotionIcon")
+	local visibleMult = stats:FindFirstChild("WinsPotionMultiplier")
+	local visibleEnd = stats:FindFirstChild("WinsPotionEndTime")
+	local visibleName = stats:FindFirstChild("WinsPotionName")
+	local visibleIcon = stats:FindFirstChild("WinsPotionIcon")
+	if not (localMult and localEnd and localName and localIcon and visibleMult and visibleEnd and visibleName and visibleIcon) then return end
+
+	localMult.Value = multiplier
+	localEnd.Value = math.max(now, localEnd.Value) + durationSeconds
+	localName.Value = potionName
+	localIcon.Value = iconId or ""
+
+	visibleMult.Value = localMult.Value
+	visibleEnd.Value = localEnd.Value
+	visibleName.Value = localName.Value
+	visibleIcon.Value = localIcon.Value
+end
+
+local function grantExpPotion(player, multiplier, durationSeconds, potionName, iconId)
+	local _, stats = ensureRewardStats(player)
+	local now = os.time()
+	local localMult = stats:FindFirstChild("LocalExpPotionMultiplier")
+	local localEnd = stats:FindFirstChild("LocalExpPotionEndTime")
+	local localName = stats:FindFirstChild("LocalExpPotionName")
+	local localIcon = stats:FindFirstChild("LocalExpPotionIcon")
+	local visibleMult = stats:FindFirstChild("ExpPotionMultiplier")
+	local visibleEnd = stats:FindFirstChild("ExpPotionEndTime")
+	local visibleName = stats:FindFirstChild("ExpPotionName")
+	local visibleIcon = stats:FindFirstChild("ExpPotionIcon")
+	if not (localMult and localEnd and localName and localIcon and visibleMult and visibleEnd and visibleName and visibleIcon) then return end
+
+	localMult.Value = multiplier
+	localEnd.Value = math.max(now, localEnd.Value) + durationSeconds
+	localName.Value = potionName
+	localIcon.Value = iconId or ""
+
+	visibleMult.Value = localMult.Value
+	visibleEnd.Value = localEnd.Value
+	visibleName.Value = localName.Value
+	visibleIcon.Value = localIcon.Value
+end
+
+local function autoGrantGroupReward(player)
+	local _, _, groupClaimed = ensureRewardStats(player)
+	if groupClaimed.Value then return end
+	if GROUP_ID <= 0 then return end
+
+	local ok, inGroup = pcall(function()
+		return player:IsInGroup(GROUP_ID)
+	end)
+	if not ok or not inGroup then return end
+
+	groupClaimed.Value = true
+	grantLevelFiveStarter(player)
+	grantWinsPotion(player, 2, GROUP_REWARD_DURATION, "2x Wins Reward", "")
+	notifyPlayer(player, "Free Reward Claimed", "Starter reward claimed! 2x Wins for 3 minutes.", "Success", 4)
+end
+
+claimFavoriteRewardRemote.OnServerEvent:Connect(function(player)
+	local _, _, groupClaimed, favoriteClaimed = ensureRewardStats(player)
+	if not groupClaimed.Value then return end
+	if favoriteClaimed.Value then return end
+
+	favoriteClaimed.Value = true
+	grantExpPotion(player, 2, FAVORITE_REWARD_DURATION, "2x EXP Reward", "")
+	notifyPlayer(player, "Favorite Reward Claimed", "2x EXP for 3 minutes!", "Success", 4)
+end)
+
+completeTutorialRewardRemote.OnServerEvent:Connect(function(player)
+	local _, _, _, _, tutorialCompleted = ensureRewardStats(player)
+	if tutorialCompleted.Value then return end
+	utorialCompleted.Value = true
+	grantExpPotion(player, 2, TUTORIAL_REWARD_DURATION, "2x EXP Tutorial Reward", "")
+	notifyPlayer(player, "Tutorial Complete", "2x EXP for 3 minutes!", "Success", 4)
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	ensureRewardStats(player)
+	task.delay(1, function()
+		if player.Parent then
+			autoGrantGroupReward(player)
+		end
+	end)
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(function()
+		ensureRewardStats(player)
+		autoGrantGroupReward(player)
+	end)
+end
