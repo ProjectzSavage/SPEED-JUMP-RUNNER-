@@ -63,7 +63,7 @@ mainFrame.Visible = false
 local function previewSound(soundId)
 	local sound = Instance.new("Sound")
 	sound.SoundId = soundId
-	sound.Volume = 0.65
+	sound.Volume = 0.45
 	sound.Parent = SoundService
 	sound:Play()
 	sound.Ended:Connect(function()
