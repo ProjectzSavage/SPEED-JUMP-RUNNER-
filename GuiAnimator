@@ -8,8 +8,8 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local CLOSE_OTHERS = true
 
-local OPEN_SOUND_ID  = "rbxassetid://6026984224"
-local CLOSE_SOUND_ID = "rbxassetid://6026984224"
+local OPEN_SOUND_ID  = "rbxassetid://139719503904449"
+local CLOSE_SOUND_ID = "rbxassetid://139719503904449"
 
 -- Tween configs
 local OPEN_POS_TWEEN   = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
