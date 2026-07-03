@@ -7,15 +7,21 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local REBIRTH_DATA = {
-	[1] = {speed = 100, multiplier = 2},
-	[2] = {speed = 1000, multiplier = 3},
-	[3] = {speed = 5000, multiplier = 4},
-	[4] = {speed = 25000, multiplier = 5},
-	[5] = {speed = 50000, multiplier = 6}
+	[1] = { level = 10, multiplier = 2 },
+	[2] = { level = 20, multiplier = 3 },
+	[3] = { level = 30, multiplier = 4 },
+	[4] = { level = 40, multiplier = 5 },
+	[5] = { level = 50, multiplier = 6 },
+	[6] = { level = 60, multiplier = 7 },
+	[7] = { level = 70, multiplier = 8 },
+	[8] = { level = 80, multiplier = 9 },
+	[9] = { level = 90, multiplier = 10 },
+	[10] = { level = 100, multiplier = 11 },
 }
 
 local rebirthGUI = playerGui:WaitForChild("RebirthGUI")
-local toggleButton = rebirthGUI:WaitForChild("ToggleButton")
+local MainMenuButtonsGUI = playerGui:WaitForChild("MainMenuButtons")
+local toggleButton = MainMenuButtonsGUI:WaitForChild("Frame"):WaitForChild("RebirthToggleButton")
 local mainFrame = rebirthGUI:WaitForChild("MainFrame")
 local currentRebirthFrame = mainFrame:WaitForChild("CurrentRebirthFrame")
 local nextRebirthLabel = currentRebirthFrame:WaitForChild("NextRebirthLabel")
@@ -53,7 +59,7 @@ local function getNextRebirth()
 	if not rebirths then return 1 end
 
 	local nextLevel = rebirths.Value + 1
-	return nextLevel <= 4 and nextLevel or nil
+	return REBIRTH_DATA[nextLevel] and nextLevel or nil
 end
 
 local function canRebirth()
@@ -63,10 +69,10 @@ local function canRebirth()
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return false end
 
-	local speed = leaderstats:FindFirstChild("Speed")
-	if not speed then return false end
+	local level = leaderstats:FindFirstChild("Level")
+	if not level then return false end
 
-	return speed.Value >= REBIRTH_DATA[nextRebirth].speed
+	return level.Value >= REBIRTH_DATA[nextRebirth].level
 end
 
 local function updateRebirthDisplay()
@@ -81,14 +87,14 @@ local function updateRebirthDisplay()
 		return
 	end
 
-	local speed = leaderstats:FindFirstChild("Speed")
-	if not speed then return end
+	local level = leaderstats:FindFirstChild("Level")
+	if not level then return end
 
 	local req = REBIRTH_DATA[nextRebirth]
-	local progress = math.min(speed.Value / req.speed, 1)
+	local progress = math.min(level.Value / req.level, 1)
 
 	nextRebirthLabel.Text = "Next Rebirth: " .. nextRebirth
-	requirementLabel.Text = "Need: " .. formatNumber(req.speed) .. " Speed (" .. formatNumber(speed.Value) .. "/" .. formatNumber(req.speed) .. ")"
+	requirementLabel.Text = "Need: Level " .. tostring(req.level) .. " (" .. tostring(level.Value) .. "/" .. tostring(req.level) .. ")"
 	progressBar.Size = UDim2.new(progress, 0, 1, 0)
 
 	if canRebirth() then
@@ -101,7 +107,6 @@ local function updateRebirthDisplay()
 end
 
 local function updateRewardsDisplay()
-	local template = rewardsFrame:WaitForChild("RebirthInfoFrame")
 	template.Visible = false
 
 	local listLayout = rewardsFrame:FindFirstChildOfClass("UIListLayout")
@@ -112,7 +117,6 @@ local function updateRewardsDisplay()
 		listLayout.Parent = rewardsFrame
 	end
 
-	-- Remove previous generated rows
 	for _, child in ipairs(rewardsFrame:GetChildren()) do
 		if child:IsA("Frame") and child ~= template and child.Name:match("^RebirthInfoRow_") then
 			child:Destroy()
@@ -124,14 +128,9 @@ local function updateRewardsDisplay()
 	local currentRebirths = leaderstats:FindFirstChild("Rebirths")
 	if not currentRebirths then return end
 
-	print("Current rebirths:", currentRebirths.Value)
-
 	for rebirthIndex = 1, currentRebirths.Value do
 		local data = REBIRTH_DATA[rebirthIndex]
-		if not data then
-			warn("Missing REBIRTH_DATA for", rebirthIndex)
-			continue
-		end
+		if not data then continue end
 
 		local row = template:Clone()
 		row.Name = "RebirthInfoRow_" .. rebirthIndex
@@ -146,8 +145,6 @@ local function updateRewardsDisplay()
 
 		rebirthTitle.Text = "Rebirth " .. rebirthIndex
 		multiplierLabel.Text = tostring(data.multiplier) .. "x"
-
-		print("Created row", rebirthIndex, "with", data.multiplier .. "x")
 	end
 
 	if rewardsFrame:IsA("ScrollingFrame") then
@@ -228,7 +225,7 @@ end)
 
 task.spawn(function()
 	local leaderstats = player:WaitForChild("leaderstats")
-	leaderstats:WaitForChild("Speed").Changed:Connect(function()
+	leaderstats:WaitForChild("Level").Changed:Connect(function()
 		if mainFrame.Visible then updateRebirthDisplay() end
 	end)
 	leaderstats:WaitForChild("Rebirths").Changed:Connect(function()
