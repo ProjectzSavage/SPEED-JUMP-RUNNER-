@@ -6,4 +6,10 @@ return {
 	Purchase = "rbxassetid://119203946171271",
 	CustomSpeed = "rbxassetid://82244280862617",
 	StepMultiplier = "rbxassetid://123229086075236",
+	Potion = "rbxassetid://140572229658395",
+	Stage = "rbxassetid://124175130500930",
+	GroupReward = "rbxassetid://127876285578628",
+	Aura = "rbxassetid://140589938389519",
+	Combo = "rbxassetid://131618296382413",
+	Music = "rbxassetid://95675742772142",
 }
