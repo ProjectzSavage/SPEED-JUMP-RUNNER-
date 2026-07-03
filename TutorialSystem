@@ -1,0 +1,432 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local stats = player:WaitForChild("Stats")
+local leaderstats = player:WaitForChild("leaderstats")
+
+local completeTutorialRewardRemote = ReplicatedStorage:WaitForChild("CompleteTutorialReward")
+
+local gui = playerGui:WaitForChild("TutorialGUI")
+local mainFrame = gui:WaitForChild("MainFrame")
+local instructionLabel = mainFrame:WaitForChild("InstructionLabel")
+
+local mainMenuButtons = playerGui:WaitForChild("MainMenuButtons")
+local freeRewardsButton = mainMenuButtons:WaitForChild("FreeRewardsToggleButton")
+
+local levelExpGui = playerGui:WaitForChild("LevelExpGUI")
+local autoJumpButton = levelExpGui:WaitForChild("MainFrame"):WaitForChild("AutoJumpButton")
+
+local rebirthGui = playerGui:WaitForChild("RebirthGUI")
+local rebirthGuiMain = rebirthGui:WaitForChild("MainFrame")
+local rebirthActionButton = rebirthGuiMain:WaitForChild("RebirthButton")
+local rebirthToggleButton = mainMenuButtons:FindFirstChild("RebirthToggleButton", true)
+if not rebirthToggleButton then
+	error("RebirthToggleButton not found inside MainMenuButtons descendants")
+end
+
+local groupRewardClaimed = stats:WaitForChild("GroupRewardClaimed")
+local tutorialCompleted = stats:WaitForChild("TutorialCompleted")
+local stepMultiplier = stats:WaitForChild("StepMultiplier")
+local level = leaderstats:WaitForChild("Level")
+local wins = leaderstats:WaitForChild("Wins")
+local rebirths = leaderstats:WaitForChild("Rebirths")
+
+-- Replay every join for now
+tutorialCompleted.Value = false
+
+-- ===== Beam Guide =====
+local guidePart = gui:FindFirstChild("GuidePart")
+if not guidePart then
+	guidePart = Instance.new("Part")
+	guidePart.Name = "GuidePart"
+	guidePart.Anchored = true
+	guidePart.CanCollide = false
+	guidePart.CanTouch = false
+	guidePart.CanQuery = false
+	guidePart.Transparency = 1
+	guidePart.Size = Vector3.new(1, 1, 1)
+	guidePart.Parent = workspace
+end
+
+local attachment0 = guidePart:FindFirstChild("A0") or Instance.new("Attachment")
+attachment0.Name = "A0"
+attachment0.Parent = guidePart
+
+local attachment1 = guidePart:FindFirstChild("A1") or Instance.new("Attachment")
+attachment1.Name = "A1"
+attachment1.Parent = guidePart
+
+local beam = guidePart:FindFirstChildOfClass("Beam")
+if not beam then
+	beam = Instance.new("Beam")
+	beam.Parent = guidePart
+end
+
+-- Swapped like you asked so the arrow faces better.
+beam.Attachment0 = attachment1
+beam.Attachment1 = attachment0
+beam.Width0 = 2
+beam.Width1 = 2
+beam.FaceCamera = true
+beam.Color = ColorSequence.new(Color3.fromRGB(255, 220, 70))
+beam.LightEmission = 1
+beam.Brightness = 4
+beam.Transparency = NumberSequence.new(0.05)
+beam.Texture = "rbxassetid://3371283711"
+beam.TextureMode = Enum.TextureMode.Wrap
+beam.TextureLength = 5
+beam.TextureSpeed = -2.5
+beam.Segments = 20
+beam.Enabled = false
+
+-- ===== Overlay + Highlight Arrows =====
+local overlay = gui:FindFirstChild("DarkOverlay")
+if not overlay then
+	overlay = Instance.new("Frame")
+	overlay.Name = "DarkOverlay"
+	overlay.Size = UDim2.fromScale(1, 1)
+	overlay.Position = UDim2.fromScale(0, 0)
+	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+	overlay.BackgroundTransparency = 1
+	overlay.BorderSizePixel = 0
+	overlay.Visible = false
+	overlay.ZIndex = 50
+	overlay.Parent = gui
+end
+
+local sideArrow = gui:FindFirstChild("SideArrow")
+if not sideArrow then
+	sideArrow = Instance.new("ImageLabel")
+	sideArrow.Name = "SideArrow"
+	sideArrow.BackgroundTransparency = 1
+	sideArrow.Image = "rbxassetid://3371283711"
+	sideArrow.Size = UDim2.fromOffset(64, 64)
+	sideArrow.AnchorPoint = Vector2.new(0.5, 0.5)
+	sideArrow.Visible = false
+	sideArrow.ZIndex = 80
+	sideArrow.Parent = gui
+end
+
+local topArrow = gui:FindFirstChild("TopArrow")
+if not topArrow then
+	topArrow = Instance.new("ImageLabel")
+	topArrow.Name = "TopArrow"
+	topArrow.BackgroundTransparency = 1
+	topArrow.Image = "rbxassetid://3371283711"
+	topArrow.Size = UDim2.fromOffset(72, 72)
+	topArrow.AnchorPoint = Vector2.new(0.5, 0.5)
+	topArrow.Visible = false
+	topArrow.ZIndex = 85
+	topArrow.Parent = gui
+end
+
+local highlighted = {}
+local currentTarget = nil
+local tutorialStep = 1
+local rewardGranted = false
+local restoredMainButtons = false
+local originalPositions = {}
+local rebirthHighlightMode = nil
+
+local function cacheOriginalPositions()
+	for _, obj in ipairs(mainMenuButtons:GetDescendants()) do
+		if obj:IsA("GuiObject") then
+			originalPositions[obj] = obj.Position
+		end
+	end
+end
+cacheOriginalPositions()
+
+local function setMainMenuVisible(visible)
+	if mainMenuButtons:IsA("ScreenGui") then
+		mainMenuButtons.Enabled = visible
+	else
+		mainMenuButtons.Visible = visible
+	end
+end
+
+local function showOnlyRebirthToggle()
+	for _, obj in ipairs(mainMenuButtons:GetDescendants()) do
+		if obj:IsA("GuiObject") and (obj:IsA("TextButton") or obj:IsA("ImageButton")) then
+			obj.Visible = (obj == rebirthToggleButton)
+		end
+	end
+end
+
+local function restoreMainButtonsAnimated()
+	if restoredMainButtons then return end
+	restoredMainButtons = true
+
+	local buttons = {}
+	for _, obj in ipairs(mainMenuButtons:GetDescendants()) do
+		if obj:IsA("GuiObject") and (obj:IsA("TextButton") or obj:IsA("ImageButton")) then
+			obj.Visible = true
+			table.insert(buttons, obj)
+		end
+	end
+
+	table.sort(buttons, function(a, b)
+		return a.AbsolutePosition.X < b.AbsolutePosition.X
+	end)
+
+	for index, button in ipairs(buttons) do
+		local original = originalPositions[button] or button.Position
+		button.Position = UDim2.new(original.X.Scale, original.X.Offset - 120, original.Y.Scale, original.Y.Offset)
+		button.BackgroundTransparency = 1
+
+		for _, child in ipairs(button:GetDescendants()) do
+			if child:IsA("TextLabel") or child:IsA("TextButton") then
+				child.TextTransparency = 1
+				child.TextStrokeTransparency = 1
+			elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
+				child.ImageTransparency = 1
+			end
+		end
+
+		task.delay((index - 1) * 0.08, function()
+			TweenService:Create(button, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Position = original,
+				BackgroundTransparency = 0,
+			}):Play()
+
+			for _, child in ipairs(button:GetDescendants()) do
+				if child:IsA("TextLabel") or child:IsA("TextButton") then
+					TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						TextTransparency = 0,
+						TextStrokeTransparency = 0,
+					}):Play()
+				elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
+					TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						ImageTransparency = 0,
+					}):Play()
+				end
+			end
+		end)
+	end
+end
+
+local function getTargetPartForModel(model)
+	if not model then return nil end
+	if model:IsA("BasePart") then return model end
+	if model:IsA("Model") then
+		return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+	end
+	return nil
+end
+
+local function findFirstWinTarget()
+	return workspace:FindFirstChild("firstwin", true)
+end
+
+local function findStepPad2Target()
+	for _, part in ipairs(CollectionService:GetTagged("StepMultiplierPad")) do
+		if tonumber(part:GetAttribute("StepOrder")) == 2 then
+			return part
+		end
+	end
+	return workspace:FindFirstChild("2", true)
+end
+
+local function setInstruction(text)
+	instructionLabel.Text = text
+end
+
+local function setTarget(target)
+	currentTarget = target
+	beam.Enabled = target ~= nil
+end
+
+local function clearHighlights()
+	for obj, oldZ in pairs(highlighted) do
+		if obj and obj.Parent then
+			obj.ZIndex = oldZ
+		end
+	end
+	table.clear(highlighted)
+	overlay.Visible = false
+	overlay.BackgroundTransparency = 1
+	sideArrow.Visible = false
+	topArrow.Visible = false
+	rebirthHighlightMode = nil
+end
+
+local function raiseZ(obj, minZ)
+	if obj:IsA("GuiObject") then
+		if highlighted[obj] == nil then
+			highlighted[obj] = obj.ZIndex
+		end
+		obj.ZIndex = math.max(obj.ZIndex, minZ)
+	end
+	for _, desc in ipairs(obj:GetDescendants()) do
+		if desc:IsA("GuiObject") then
+			if highlighted[desc] == nil then
+				highlighted[desc] = desc.ZIndex
+			end
+			desc.ZIndex = math.max(desc.ZIndex, minZ)
+		end
+	end
+end
+
+local function setOverlayVisible()
+	overlay.Visible = true
+	TweenService:Create(overlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		BackgroundTransparency = 0.35,
+	}):Play()
+end
+
+local function applyRebirthToggleHighlight()
+	if rebirthHighlightMode == "Toggle" then return end
+	clearHighlights()
+	rebirthHighlightMode = "Toggle"
+	setOverlayVisible()
+	raiseZ(rebirthToggleButton, 70)
+	sideArrow.Visible = true
+	sideArrow.Rotation = 90
+end
+
+local function applyRebirthFrameHighlight()
+	if rebirthHighlightMode == "Frame" then return end
+	clearHighlights()
+	rebirthHighlightMode = "Frame"
+	setOverlayVisible()
+	raiseZ(rebirthGuiMain, 70)
+	raiseZ(rebirthActionButton, 80)
+	topArrow.Visible = true
+	topArrow.Rotation = 180
+end
+
+local function refreshStep()
+	if tutorialCompleted.Value then
+		beam.Enabled = false
+		clearHighlights()
+		mainFrame.Visible = false
+		restoreMainButtonsAnimated()
+		return
+	end
+
+	if tutorialStep == 1 then
+		clearHighlights()
+		setMainMenuVisible(true)
+		mainFrame.Visible = true
+		setInstruction("Claim your free reward")
+		setTarget(freeRewardsButton)
+		if groupRewardClaimed.Value then
+			tutorialStep = 2
+			refreshStep()
+		end
+	elseif tutorialStep == 2 then
+		clearHighlights()
+		setMainMenuVisible(false)
+		setInstruction("Get 2 Wins")
+		setTarget(findFirstWinTarget())
+		if wins.Value >= 2 then
+			tutorialStep = 3
+			refreshStep()
+		end
+	elseif tutorialStep == 3 then
+		clearHighlights()
+		setInstruction("Equip the 2x step pad")
+		setTarget(findStepPad2Target())
+		if stepMultiplier.Value > 1 then
+			tutorialStep = 4
+			refreshStep()
+		end
+	elseif tutorialStep == 4 then
+		clearHighlights()
+		setInstruction("Turn on Auto Jump and reach Level 10")
+		setTarget(autoJumpButton)
+		if level.Value >= 10 then
+			tutorialStep = 5
+			refreshStep()
+		end
+	elseif tutorialStep == 5 then
+		setMainMenuVisible(true)
+		showOnlyRebirthToggle()
+		setInstruction("Rebirth now")
+		setTarget(nil)
+
+		if rebirthGuiMain.Visible then
+			applyRebirthFrameHighlight()
+		else
+			applyRebirthToggleHighlight()
+		end
+
+		if rebirths.Value >= 1 and not rewardGranted then
+			rewardGranted = true
+			completeTutorialRewardRemote:FireServer()
+			tutorialStep = 6
+			refreshStep()
+		end
+	elseif tutorialStep == 6 then
+		beam.Enabled = false
+		clearHighlights()
+		setInstruction("Tutorial complete!")
+		restoreMainButtonsAnimated()
+		task.delay(2, function()
+			mainFrame.Visible = false
+		end)
+	end
+end
+
+groupRewardClaimed.Changed:Connect(refreshStep)
+wins.Changed:Connect(refreshStep)
+level.Changed:Connect(refreshStep)
+stepMultiplier.Changed:Connect(refreshStep)
+rebirths.Changed:Connect(refreshStep)
+tutorialCompleted.Changed:Connect(refreshStep)
+rebirthGuiMain:GetPropertyChangedSignal("Visible"):Connect(function()
+	if tutorialStep == 5 then
+		refreshStep()
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+
+	-- Beam from torso instead of head
+	if beam.Enabled and currentTarget and root then
+		local startPos = root.Position + Vector3.new(0, 0.8, 0)
+
+		if typeof(currentTarget) == "Instance" then
+			if currentTarget:IsA("GuiObject") then
+				local cam = workspace.CurrentCamera
+				if cam then
+					local look = cam.CFrame.Position + cam.CFrame.LookVector * 25
+					attachment0.WorldPosition = startPos
+					attachment1.WorldPosition = look
+				end
+			else
+				local targetPart = getTargetPartForModel(currentTarget)
+				if targetPart then
+					attachment0.WorldPosition = startPos
+					attachment1.WorldPosition = targetPart.Position + Vector3.new(0, 3, 0)
+				end
+			end
+		end
+	end
+
+	-- Arrow animation for rebirth toggle/frame
+	local t = tick()
+	if sideArrow.Visible and rebirthToggleButton.Visible then
+		local pos = rebirthToggleButton.AbsolutePosition
+		local size = rebirthToggleButton.AbsoluteSize
+		local xOffset = math.sin(t * 4) * 12
+		sideArrow.Position = UDim2.fromOffset(pos.X - 40 + xOffset, pos.Y + size.Y * 0.5)
+	end
+
+	if topArrow.Visible and rebirthGuiMain.Visible then
+		local pos = rebirthActionButton.AbsolutePosition
+		local size = rebirthActionButton.AbsoluteSize
+		local yOffset = math.sin(t * 4) * 10
+		topArrow.Position = UDim2.fromOffset(pos.X + size.X * 0.5, pos.Y - 30 + yOffset)
+	end
+end)
+
+mainFrame.Visible = true
+refreshStep()
