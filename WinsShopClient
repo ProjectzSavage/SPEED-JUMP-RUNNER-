@@ -1,0 +1,152 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local promptWinsShopRemote = ReplicatedStorage:WaitForChild("PromptWinsShopPurchase")
+
+local levelExpGui = playerGui:WaitForChild("LevelExpGUI")
+local levelMain = levelExpGui:WaitForChild("MainFrame")
+local winsShopButton = levelMain:WaitForChild("WinsShopButton")
+
+local gui = playerGui:WaitForChild("WinsShopGUI")
+local mainFrame = gui:WaitForChild("MainFrame")
+local headerFrame = mainFrame:WaitForChild("HeaderFrame")
+local closeButton = headerFrame:WaitForChild("CloseButton")
+local contentFrame = mainFrame:WaitForChild("ContentFrame")
+local productsFrame = contentFrame:WaitForChild("ProductsFrame")
+
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+local PRODUCTS = {
+	Wins50 = {
+		percent = 0.50,
+		button = productsFrame:WaitForChild("Product1Button"),
+	},
+	Wins100 = {
+		percent = 1.00,
+		button = productsFrame:WaitForChild("Product2Button"),
+	},
+	Wins210 = {
+		percent = 2.10,
+		button = productsFrame:WaitForChild("Product3Button"),
+	},
+}
+
+local animating = false
+local openPosition = mainFrame.Position
+local closedPosition = UDim2.new(openPosition.X.Scale, openPosition.X.Offset, openPosition.Y.Scale + 0.06, openPosition.Y.Offset)
+
+local function formatNumber(n)
+	n = tonumber(n) or 0
+	if n >= 1e12 then return string.format("%.2fT", n / 1e12) end
+	if n >= 1e9 then return string.format("%.2fB", n / 1e9) end
+	if n >= 1e6 then return string.format("%.2fM", n / 1e6) end
+	if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
+	return tostring(math.floor(n))
+end
+
+local function getCurrentWins()
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+	return math.max(0, math.floor((wins and wins.Value) or 0))
+end
+
+local function getLabelForButton(button)
+	return button:FindFirstChild("AmountLabel")
+		or button:FindFirstChild("TextLabel")
+		or button:FindFirstChildWhichIsA("TextLabel")
+end
+
+local function setButtonText(button, text)
+	local label = getLabelForButton(button)
+	if label then
+		label.Text = text
+	elseif button:IsA("TextButton") then
+		button.Text = text
+	end
+end
+
+local function updateShopTexts()
+	local currentWins = getCurrentWins()
+	for key, info in pairs(PRODUCTS) do
+		local gain = math.max(1, math.floor(currentWins * info.percent + 0.5))
+		setButtonText(info.button, "+" .. formatNumber(gain) .. " Wins")
+		info.button:SetAttribute("GainAmount", gain)
+		info.button:SetAttribute("Percent", info.percent)
+		info.button:SetAttribute("ProductKey", key)
+		info.button:SetAttribute("CurrentWinsSeen", currentWins)
+		info.button:SetAttribute("RobuxButton", true)
+	end
+end
+
+local function openShop()
+	if animating or mainFrame.Visible then return end
+	animating = true
+	updateShopTexts()
+	mainFrame.Visible = true
+	mainFrame.Position = closedPosition
+	uiScale.Scale = 0.94
+
+	local t1 = TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = openPosition,
+	})
+	local t2 = TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	})
+
+	t1:Play()
+	t2:Play()
+	t1.Completed:Wait()
+	animating = false
+end
+
+local function closeShop()
+	if animating or not mainFrame.Visible then return end
+	animating = true
+
+	local t1 = TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = closedPosition,
+	})
+	local t2 = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Scale = 0.94,
+	})
+
+	t1:Play()
+	t2:Play()
+	t1.Completed:Wait()
+
+	mainFrame.Visible = false
+	mainFrame.Position = openPosition
+	uiScale.Scale = 1
+	animating = false
+end
+
+for productKey, info in pairs(PRODUCTS) do
+	info.button.MouseButton1Click:Connect(function()
+		promptWinsShopRemote:FireServer(productKey)
+	end)
+end
+
+winsShopButton.MouseButton1Click:Connect(function()
+	if mainFrame.Visible then
+		closeShop()
+	else
+		openShop()
+	end
+end)
+
+closeButton.MouseButton1Click:Connect(closeShop)
+
+local leaderstats = player:WaitForChild("leaderstats")
+leaderstats:WaitForChild("Wins").Changed:Connect(updateShopTexts)
+
+mainFrame.Visible = false
+mainFrame.Position = openPosition
+updateShopTexts()
