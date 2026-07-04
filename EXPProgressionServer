@@ -60,8 +60,8 @@ for multiplier, gamePassId in pairs(GAMEPASS_ID_BY_MULTIPLIER) do
 	end
 end
 
-local WINS_BOOST_GAMEPASS_ID = 1896192678 -- set your 2x wins gamepass id
-local REBIRTH_BOOST_GAMEPASS_ID = 1896830688 -- set your 2x rebirth gamepass id
+local WINS_BOOST_GAMEPASS_ID = 1896192678
+local REBIRTH_BOOST_GAMEPASS_ID = 1896830688
 
 -- Speed shop uses DEVELOPER PRODUCTS
 local SPEED_SHOP_PRODUCTS = {
@@ -91,6 +91,36 @@ for key, info in pairs(WINS_SHOP_PRODUCTS) do
 	if info.productId > 0 then
 		WINS_SHOP_BY_PRODUCT_ID[info.productId] = key
 	end
+end
+
+local TRAMPOLINE_REQUIREMENTS = {
+	["1x"] = { expMult = 1.0, bouncePower = 62, free = true },
+	["1.5x"] = { expMult = 1.5, bouncePower = 68, playtimeSeconds = 600 },
+	["2x"] = { expMult = 2.0, bouncePower = 72, rebirths = 2 },
+	["5x"] = { expMult = 5.0, bouncePower = 82, gamePassId = 1899793448, displayName = "Golden Trampoline" },
+	["10x"] = { expMult = 10.0, bouncePower = 92, gamePassId = 1898311468, displayName = "Electric Trampoline" },
+	["100x"] = { expMult = 100.0, bouncePower = 120, gamePassId = 1898449573, displayName = "Admin Trampoline" },
+}
+
+local function getTrampBoostFolder()
+	return workspace:FindFirstChild("TrampBoost")
+end
+
+local function getOnePointFiveTimerLabel()
+	local folder = getTrampBoostFolder()
+	if not folder then return nil end
+	local model = folder:FindFirstChild("1.5x")
+	if not model then return nil end
+	local billboard = model:FindFirstChild("Timer", true)
+	if not billboard then return nil end
+	return billboard:FindFirstChildWhichIsA("TextLabel", true)
+end
+
+local function formatClock(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	local mins = math.floor(seconds / 60)
+	local secs = seconds % 60
+	return string.format("Unlocks in %02d:%02d", mins, secs)
 end
 
 local POTION_PRODUCT_BY_ID = {}
@@ -161,9 +191,9 @@ for _, aura in pairs(AURAS) do
 end
 
 local BASE_REAL_SPEED = 5
-local BASE_EXP_PER_JUMP = 20
+local BASE_EXP_PER_JUMP = 100
 local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.5
-local LEVEL_UP_SPEED_BOOST_DURATION = 3
+local LEVEL_UP_SPEED_BOOST_DURATION = 7
 local MAX_LEVEL = 1000000
 local MAX_REAL_SPEED_CAP = 250
 local JUMP_DEBOUNCE = 0.1
@@ -184,6 +214,8 @@ local winCooldown = {}
 local potionFiveMinuteWarnings = {}
 local comboState = {}
 local pendingRevives = {}
+local trampolinePassOwnership = {}
+local trampolinePromptCooldown = {}
 
 local REVIVE_PRODUCTS = {
 	Early = { productId = 0, price = 19 },
@@ -194,15 +226,6 @@ local REVIVE_PRODUCTS = {
 local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 overlapParams.FilterDescendantsInstances = {}
-
-
-local grantDisplaySpeedBindable = ReplicatedStorage:FindFirstChild("GrantDisplaySpeedBonus")
-if not grantDisplaySpeedBindable then
-	grantDisplaySpeedBindable = Instance.new("BindableEvent")
-	grantDisplaySpeedBindable.Name = "GrantDisplaySpeedBonus"
-	grantDisplaySpeedBindable.Parent = ReplicatedStorage
-end
-
 
 local function ensureValue(parent, className, name, defaultValue)
 	local v = parent:FindFirstChild(name)
@@ -442,7 +465,7 @@ local function grantAuraPurchase(player, auraKey)
 end
 
 local function formatExpRequired(level)
-	return math.floor(150 + (level ^ 1.60) * 55)
+	return math.floor(100 + (level ^ 1.45) * 35)
 end
 
 local COMBO_RESET_TIME = 1.4
@@ -929,6 +952,79 @@ local function promptRevive(player)
 	})
 end
 
+local function refreshTrampolinePassOwnership(player)
+	trampolinePassOwnership[player] = trampolinePassOwnership[player] or {}
+	for name, data in pairs(TRAMPOLINE_REQUIREMENTS) do
+		if data.gamePassId and data.gamePassId > 0 then
+			local ok, owns = pcall(function()
+				return MarketplaceService:UserOwnsGamePassAsync(player.UserId, data.gamePassId)
+			end)
+			trampolinePassOwnership[player][name] = ok and owns or false
+		end
+	end
+end
+
+local function getTrampolineAccess(player, part)
+	local keyName = part.Name
+
+	local parentModel = part:FindFirstAncestorOfClass("Model")
+	if not TRAMPOLINE_REQUIREMENTS[keyName] and parentModel and TRAMPOLINE_REQUIREMENTS[parentModel.Name] then
+		keyName = parentModel.Name
+	end
+
+	local data = TRAMPOLINE_REQUIREMENTS[keyName]
+	if not data then
+		return true, 1, part:GetAttribute("BouncePower") or TRAMPOLINE_BOUNCE_DEFAULT
+	end
+
+	local stats = player:FindFirstChild("Stats")
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local rebirths = leaderstats and leaderstats:FindFirstChild("Rebirths")
+	local playtime = stats and stats:FindFirstChild("PlayTimeSeconds")
+
+	if data.free then
+		return true, data.expMult, data.bouncePower
+	end
+
+	if data.playtimeSeconds and (not playtime or playtime.Value < data.playtimeSeconds) then
+		local remaining = math.max(0, data.playtimeSeconds - (playtime and playtime.Value or 0))
+		return false, data.expMult, data.bouncePower, string.format("Need %dm playtime (%dm left)", math.floor(data.playtimeSeconds / 60), math.ceil(remaining / 60))
+	end
+
+	if data.rebirths and (not rebirths or rebirths.Value < data.rebirths) then
+		return false, data.expMult, data.bouncePower, string.format("Need %d rebirths", data.rebirths)
+	end
+
+	if data.gamePassId and data.gamePassId > 0 then
+		trampolinePassOwnership[player] = trampolinePassOwnership[player] or {}
+		local owns = trampolinePassOwnership[player][keyName]
+		if owns == nil then
+			refreshTrampolinePassOwnership(player)
+			owns = trampolinePassOwnership[player][part.Name]
+		end
+		if not owns then
+			return false, data.expMult, data.bouncePower, "Requires gamepass", data.gamePassId, data.displayName or keyName
+		end
+	end
+
+	return true, data.expMult, data.bouncePower
+end
+
+local function notifyLockedTrampoline(player, part, reason, gamePassId, displayName)
+	trampolinePromptCooldown[player] = trampolinePromptCooldown[player] or {}
+	local now = tick()
+	local last = trampolinePromptCooldown[player][part] or 0
+	if now - last < 4 then return end
+	trampolinePromptCooldown[player][part] = now
+
+	if gamePassId and gamePassId > 0 then
+		notifyPlayer(player, "Locked Trampoline", (displayName or part.Name) .. " requires a gamepass.", "Warning", 3.2)
+		MarketplaceService:PromptGamePassPurchase(player, gamePassId)
+	else
+		notifyPlayer(player, "Locked Trampoline", reason or "You can't use this yet.", "Warning", 3.2)
+	end
+end
+
 local function getMaxRealSpeed(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return BASE_REAL_SPEED end
@@ -984,8 +1080,6 @@ local function applyWalkSpeed(player)
 	local groupRewardBonus = (stats:FindFirstChild("GroupRewardDisplaySpeedBonus") and stats.GroupRewardDisplaySpeedBonus.Value) or 0
 	speedStat.Value = math.floor(displayBase * (1 + skinBoost) + groupRewardBonus)
 end
-
-
 
 local function refreshOwnedExpBoost(player)
 	local expBoost = player:FindFirstChild("ExpBoost")
@@ -1069,6 +1163,7 @@ local function createPlayerStats(player)
 	ensureValue(stats, "NumberValue", "EXP", 0)
 	ensureValue(stats, "NumberValue", "EXPRequired", formatExpRequired(level.Value))
 	ensureValue(stats, "IntValue", "Jumps", 0)
+	ensureValue(stats, "IntValue", "PlayTimeSeconds", 0)
 	ensureValue(stats, "IntValue", "Multiplier", 1)
 	ensureValue(stats, "NumberValue", "SpeedBoost", 0)
 	ensureValue(stats, "NumberValue", "TitleMultiplier", 1)
@@ -1238,44 +1333,6 @@ local function getExpNeededToReachTargetProgress(currentLevel, currentExp, curre
 	return needed
 end
 
-local function grantSyncedDisplaySpeed(player, extraDisplaySpeed)
-	local leaderstats = player:FindFirstChild("leaderstats")
-	local stats = player:FindFirstChild("Stats")
-	if not leaderstats or not stats then return false end
-
-	local level = leaderstats:FindFirstChild("Level")
-	local speedStat = leaderstats:FindFirstChild("Speed")
-	local exp = stats:FindFirstChild("EXP")
-	local expRequired = stats:FindFirstChild("EXPRequired")
-
-	if not level or not level:IsA("IntValue") then return false end
-	if not speedStat or not speedStat:IsA("IntValue") then return false end
-	if not exp or not exp:IsA("NumberValue") then return false end
-	if not expRequired or not expRequired:IsA("NumberValue") then return false end
-
-	applyWalkSpeed(player)
-
-	local currentDisplayedSpeed = math.max(0, tonumber(speedStat.Value) or 0)
-	local rewardAmount = math.max(0, tonumber(extraDisplaySpeed) or 0)
-
-	local skinMultiplier = 1 + getSkinSpeedBoost(player)
-	local targetDisplayedSpeed = currentDisplayedSpeed + rewardAmount
-	local targetBaseDisplaySpeed = math.max(0, math.ceil(targetDisplayedSpeed / skinMultiplier))
-
-	local currentProgress = getProgressValue(level.Value, exp.Value, expRequired.Value)
-	local targetProgress = math.sqrt(targetBaseDisplaySpeed / 18.75)
-
-	if targetProgress > currentProgress then
-		local expToGrant = getExpNeededToReachTargetProgress(level.Value, exp.Value, expRequired.Value, targetProgress)
-		if expToGrant > 0 then
-			addExp(player, expToGrant)
-			return true
-		end
-	end
-
-	return false
-end
-
 local function grantSyncedSpeedProduct(player, productKey)
 	local info = SPEED_SHOP_PRODUCTS[productKey]
 	if not info then
@@ -1375,8 +1432,6 @@ local function migrateLegacyShopBonus(player)
 	migrated.Value = true
 	applyWalkSpeed(player)
 end
-
-
 
 promptBoostRemote.OnServerEvent:Connect(function(player, requestedMultiplier)
 	local expBoost = player:FindFirstChild("ExpBoost")
@@ -1519,6 +1574,8 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
 		return
 	end
 
+	refreshTrampolinePassOwnership(player)
+
 	local aura = AURA_BY_GAMEPASS_ID[gamePassId]
 	if aura then
 		refreshOwnedAuraGamepasses(player)
@@ -1637,18 +1694,25 @@ task.spawn(function()
 	while true do
 		for _, pad in ipairs(CollectionService:GetTagged("TrampolinePad")) do
 			if pad:IsA("BasePart") and pad.Parent then
-				local expMult = pad:GetAttribute("ExpMultiplier") or 1
 				local tickRate = pad:GetAttribute("TickRate") or TRAMPOLINE_TICK_RATE_DEFAULT
-				local bouncePower = pad:GetAttribute("BouncePower") or TRAMPOLINE_BOUNCE_DEFAULT
 
-				local parts = workspace:GetPartsInPart(pad, overlapParams)
+				-- More reliable than GetPartsInPart for unions / angled pads
+				pad.CanQuery = true
+				local parts = workspace:GetPartBoundsInBox(
+					pad.CFrame,
+					pad.Size + Vector3.new(0, 3, 0),
+					overlapParams
+				)
+
 				local seen = {}
 
 				for _, p in ipairs(parts) do
 					local model = p:FindFirstAncestorOfClass("Model")
 					if model then
 						local plr = Players:GetPlayerFromCharacter(model)
-						if plr then seen[plr] = true end
+						if plr then
+							seen[plr] = true
+						end
 					end
 				end
 
@@ -1656,28 +1720,50 @@ task.spawn(function()
 					trampolineCooldown[plr] = trampolineCooldown[plr] or {}
 					local last = trampolineCooldown[plr][pad] or 0
 					local now = tick()
+
 					if now - last >= tickRate then
 						trampolineCooldown[plr][pad] = now
 
-						local char = plr.Character
-						local stats = plr:FindFirstChild("Stats")
-						if char and stats then
-							local hum = char:FindFirstChildOfClass("Humanoid")
-							local root = char:FindFirstChild("HumanoidRootPart")
-							local jumps = stats:FindFirstChild("Jumps")
-							if hum and root and jumps and hum.Health > 0 then
-								jumps.Value += 1
-								hum:ChangeState(Enum.HumanoidStateType.Jumping)
-								local v = root.AssemblyLinearVelocity
-								root.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, bouncePower), v.Z)
+						refreshTrampolinePassOwnership(plr)
 
-								local comboCount, comboExpMult = updateComboForJump(plr)
-								local rebirthMult, gamepassExpMult, titleMult, stepMult, auraExpMult = getPlayerMultipliers(plr)
-								local expPotionMult = getExpPotionMultiplier(plr)
-								local gain = BASE_EXP_PER_JUMP * rebirthMult * gamepassExpMult * titleMult * stepMult * auraExpMult * comboExpMult * expPotionMult * expMult
+						local allowed, expMult, bouncePower, reason, gamePassId, displayName = getTrampolineAccess(plr, pad)
+						if not allowed then
+							notifyLockedTrampoline(plr, pad, reason, gamePassId, displayName)
+						else
+							local char = plr.Character
+							local stats = plr:FindFirstChild("Stats")
+							if char and stats then
+								local hum = char:FindFirstChildOfClass("Humanoid")
+								local root = char:FindFirstChild("HumanoidRootPart")
+								local jumps = stats:FindFirstChild("Jumps")
+								if hum and root and jumps and hum.Health > 0 then
+									jumps.Value += 1
 
-								addExp(plr, gain)
-								expPopupRemote:FireClient(plr, math.floor(gain))
+									-- Lift the character off the pad first so the ground
+									-- sensor doesn't immediately cancel the upward velocity.
+									root.CFrame = root.CFrame + Vector3.new(0, 0.6, 0)
+
+									hum:ChangeState(Enum.HumanoidStateType.Freefall)
+									local v = root.AssemblyLinearVelocity
+									root.AssemblyLinearVelocity = Vector3.new(v.X, bouncePower, v.Z)
+
+									local comboCount, comboExpMult = updateComboForJump(plr)
+									local rebirthMult, gamepassExpMult, titleMult, stepMult, auraExpMult = getPlayerMultipliers(plr)
+									local expPotionMult = getExpPotionMultiplier(plr)
+
+									local gain = BASE_EXP_PER_JUMP
+										* rebirthMult
+										* gamepassExpMult
+										* titleMult
+										* stepMult
+										* auraExpMult
+										* comboExpMult
+										* expPotionMult
+										* expMult
+
+									addExp(plr, gain)
+									expPopupRemote:FireClient(plr, math.floor(gain))
+								end
 							end
 						end
 					end
@@ -1685,6 +1771,34 @@ task.spawn(function()
 			end
 		end
 		task.wait(0.1)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		local highestPlaytime = 0
+		for _, player in ipairs(Players:GetPlayers()) do
+			local stats = player:FindFirstChild("Stats")
+			local playtime = stats and stats:FindFirstChild("PlayTimeSeconds")
+			if playtime then
+				playtime.Value += 1
+				if playtime.Value > highestPlaytime then
+					highestPlaytime = playtime.Value
+				end
+			end
+		end
+
+		local label = getOnePointFiveTimerLabel()
+		if label then
+			local remaining = math.max(0, 600 - highestPlaytime)
+			if remaining > 0 then
+				label.Text = formatClock(remaining)
+			else
+				label.Text = "Unlocked"
+			end
+		end
+
+		task.wait(1)
 	end
 end)
 
@@ -1704,12 +1818,6 @@ setSpeedRemote.OnServerEvent:Connect(function(player, requestedSpeed)
 	notifyPlayer(player, "Custom Speed Set", "Custom speed set to " .. formatNumber(selected.Value) .. ".", "Info", 3.2, nil, {
 		iconKey = "CustomSpeed",
 	})
-end)
-
-grantDisplaySpeedBindable.Event:Connect(function(player, amount)
-	if typeof(player) ~= "Instance" or not player:IsA("Player") then return end
-	if typeof(amount) ~= "number" then return end
-	grantSyncedDisplaySpeed(player, amount)
 end)
 
 local function getSpawnPart()
@@ -1877,6 +1985,7 @@ local function onPlayerAdded(player)
 	refreshOwnedWinsBoost(player)
 	refreshOwnedRebirthBoost(player)
 	refreshOwnedAuraGamepasses(player)
+	refreshTrampolinePassOwnership(player)
 	migrateLegacyShopBonus(player)
 	potionFiveMinuteWarnings[player] = {}
 
@@ -1887,6 +1996,7 @@ local function onPlayerAdded(player)
 			refreshOwnedWinsBoost(player)
 			refreshOwnedRebirthBoost(player)
 			refreshOwnedAuraGamepasses(player)
+			refreshTrampolinePassOwnership(player)
 		end
 	end)
 
