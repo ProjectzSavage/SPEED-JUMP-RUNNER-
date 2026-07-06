@@ -28,6 +28,8 @@ local trackedGuiFrames = {
 	{ guiName = "InventoryGUI", frameName = "MainFrame" },
 	{ guiName = "FreeRewardsGUI", frameName = "MainFrame" },
 	{ guiName = "SettingsGUI", frameName = "MainFrame" },
+	{ guiName = "WinsShopGUI", frameName = "MainFrame" },
+	{ guiName = "SpeedShopGUI", frameName = "ShopFrame" },
 }
 
 local blur = Lighting:FindFirstChild("GuiFocusBlur")
