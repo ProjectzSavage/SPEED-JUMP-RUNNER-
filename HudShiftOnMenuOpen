@@ -4,8 +4,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Increase this if you want the HUD to move further down.
-local SHIFT_Y = 189 --137
+local SHIFT_Y = 82
 
 local OPEN_TWEEN = TweenInfo.new(0.36, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local CLOSE_TWEEN = TweenInfo.new(0.30, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -16,11 +15,16 @@ local trackedMenus = {
 	{ guiName = "SkinGUI", frameName = "MainFrame" },
 	{ guiName = "KeyboardSoundGUI", frameName = "MainFrame" },
 	{ guiName = "InventoryGUI", frameName = "MainFrame" },
+	{ guiName = "FreeRewardsGUI", frameName = "MainFrame" },
+	{ guiName = "SettingsGUI", frameName = "MainFrame" },
+	{ guiName = "WinsShopGUI", frameName = "MainFrame" },
+	{ guiName = "SpeedShopGUI", frameName = "ShopFrame" },
 }
 
 local targets = {}
 local originalPositions = {}
 local currentStateDown = false
+local tutorialHiddenByMenu = false
 
 local function getLevelHudMain()
 	local gui = playerGui:FindFirstChild("LevelExpGUI")
@@ -32,30 +36,28 @@ local function getShopTopOffersFrame()
 	return gui and gui:FindFirstChild("TopOffersFrame")
 end
 
-local function makeShiftedPosition(pos)
-	return UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset + SHIFT_Y)
+local function getTutorialMain()
+	local gui = playerGui:FindFirstChild("TutorialGUI")
+	return gui and gui:FindFirstChild("MainFrame")
 end
 
-local function makeUnshiftedPosition(pos)
-	return UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset - SHIFT_Y)
+local function makeShiftedPosition(pos)
+	return UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset + SHIFT_Y)
 end
 
 local function registerTarget(obj)
 	if not obj or not obj:IsA("GuiObject") then return end
 	if targets[obj] then return end
-
 	local base = originalPositions[obj]
 	if not base then
-		base = currentStateDown and makeUnshiftedPosition(obj.Position) or obj.Position
+		base = currentStateDown and UDim2.new(obj.Position.X.Scale, obj.Position.X.Offset, obj.Position.Y.Scale, obj.Position.Y.Offset - SHIFT_Y) or obj.Position
 		originalPositions[obj] = base
 	end
-
 	targets[obj] = true
 end
 
 local function rebuildTargets()
 	targets = {}
-
 	local hudMain = getLevelHudMain()
 	if hudMain then
 		registerTarget(hudMain:FindFirstChild("ExpBarFrame"))
@@ -64,29 +66,25 @@ local function rebuildTargets()
 		registerTarget(hudMain:FindFirstChild("GamepassMultLabel"))
 		registerTarget(hudMain:FindFirstChild("SkinBoostLabel"))
 		registerTarget(hudMain:FindFirstChild("RebirthMultLabel"))
-		registerTarget(hudMain:FindFirstChild("AutoJumpButton"))
 		registerTarget(hudMain:FindFirstChild("LeftIconFrame", true))
 		registerTarget(hudMain:FindFirstChild("LevelLabel", true))
 		registerTarget(hudMain:FindFirstChild("ExpLabel", true))
 		registerTarget(hudMain:FindFirstChild("BarClip", true))
+		registerTarget(hudMain:FindFirstChild("AutoJumpButton", true))
 	end
-
 	registerTarget(getShopTopOffersFrame())
 end
 
 local function tweenHud(down)
 	if currentStateDown == down then return end
 	currentStateDown = down
-
 	for obj in pairs(targets) do
 		if obj and obj.Parent then
 			local base = originalPositions[obj] or obj.Position
 			originalPositions[obj] = base
-			TweenService:Create(
-				obj,
-				down and OPEN_TWEEN or CLOSE_TWEEN,
-				{ Position = down and makeShiftedPosition(base) or base }
-			):Play()
+			TweenService:Create(obj, down and OPEN_TWEEN or CLOSE_TWEEN, {
+				Position = down and makeShiftedPosition(base) or base
+			}):Play()
 		end
 	end
 end
@@ -102,9 +100,26 @@ local function anyTrackedMenuOpen()
 	return false
 end
 
+local function refreshTutorialVisibility()
+	local tutorialMain = getTutorialMain()
+	if not tutorialMain then return end
+	if anyTrackedMenuOpen() then
+		if tutorialMain.Visible then
+			tutorialHiddenByMenu = true
+			tutorialMain.Visible = false
+		end
+	else
+		if tutorialHiddenByMenu then
+			tutorialHiddenByMenu = false
+			tutorialMain.Visible = true
+		end
+	end
+end
+
 local function refreshHudPosition()
 	rebuildTargets()
 	tweenHud(anyTrackedMenuOpen())
+	refreshTutorialVisibility()
 end
 
 local function connectMenuWatcher(guiName, frameName)
@@ -124,17 +139,4 @@ playerGui.ChildRemoved:Connect(function()
 	task.defer(refreshHudPosition)
 end)
 
-local function hookDescendants(guiName)
-	local gui = playerGui:WaitForChild(guiName)
-	gui.DescendantAdded:Connect(function()
-		task.defer(refreshHudPosition)
-	end)
-	gui.DescendantRemoving:Connect(function()
-		task.defer(refreshHudPosition)
-	end)
-end
-
-task.spawn(hookDescendants, "LevelExpGUI")
-task.spawn(hookDescendants, "SpeedShopGUI")
-
-refreshHudPosition()
+task.defer(refreshHudPosition)
