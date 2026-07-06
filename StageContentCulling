@@ -1,0 +1,150 @@
+-- StageContentCulling
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local stats = player:WaitForChild("Stats")
+local currentStageValue = stats:WaitForChild("CurrentStage")
+local zonesFolder = workspace:WaitForChild("Zones")
+local bubblesFolder = workspace:WaitForChild("BubbleStages")
+local decorFolder = workspace:FindFirstChild("DecorStages")
+
+local LOOK_BEHIND = 2
+local LOOK_AHEAD = 2
+
+local cachedParts = setmetatable({}, { __mode = "k" })
+local containerVisibility = setmetatable({}, { __mode = "k" })
+
+local function parseStageNumber(name)
+	if typeof(name) ~= "string" then return nil end
+	local lower = string.lower(name)
+	local n = tonumber(lower:match("stage(%d+)"))
+	if n then return n end
+	return tonumber(name)
+end
+
+local function cachePart(part)
+	if cachedParts[part] then return end
+	cachedParts[part] = {
+		CanTouch = part.CanTouch,
+		CanQuery = part.CanQuery,
+	}
+end
+
+local function setContainerVisible(container, visible)
+	for _, obj in ipairs(container:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			cachePart(obj)
+			obj.LocalTransparencyModifier = visible and 0 or 1
+			obj.CanTouch = visible and cachedParts[obj].CanTouch or false
+			obj.CanQuery = visible and cachedParts[obj].CanQuery or false
+		elseif obj:IsA("SurfaceGui") or obj:IsA("BillboardGui") then
+			obj.Enabled = visible
+		elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+			obj.Enabled = visible
+		end
+	end
+end
+
+local function applyStageToContainer(obj, current)
+	local stageNum = parseStageNumber(obj.Name)
+	if not stageNum then return end
+	local visible = stageNum >= (current - LOOK_BEHIND) and stageNum <= (current + LOOK_AHEAD)
+	if containerVisibility[obj] ~= visible then
+		containerVisibility[obj] = visible
+		setContainerVisible(obj, visible)
+	end
+end
+
+-- For BubbleStages / DecorStages: stage models/folders are DIRECT children.
+local function applyStageWindowFlat(rootFolder)
+	if not rootFolder then return end
+	local current = currentStageValue.Value
+	for _, obj in ipairs(rootFolder:GetChildren()) do
+		if obj:IsA("Model") or obj:IsA("Folder") then
+			applyStageToContainer(obj, current)
+		end
+	end
+end
+
+-- For Zones: structure is Zones/<theme subfolder>/<stage model>.
+-- Theme subfolder names ("1", "2") are NOT stage numbers — only their
+-- children are. We recurse one extra level here only.
+local function applyStageWindowNested(rootFolder)
+	if not rootFolder then return end
+	local current = currentStageValue.Value
+	for _, themeFolder in ipairs(rootFolder:GetChildren()) do
+		if themeFolder:IsA("Folder") then
+			for _, obj in ipairs(themeFolder:GetChildren()) do
+				if obj:IsA("Model") or obj:IsA("Folder") then
+					applyStageToContainer(obj, current)
+				end
+			end
+		end
+	end
+end
+
+local function refreshAll()
+	applyStageWindowNested(zonesFolder)
+	applyStageWindowFlat(bubblesFolder)
+	applyStageWindowFlat(decorFolder)
+end
+
+local refreshPending = false
+local function requestRefresh()
+	if refreshPending then return end
+	refreshPending = true
+	task.defer(function()
+		refreshPending = false
+		refreshAll()
+	end)
+end
+
+currentStageValue.Changed:Connect(requestRefresh)
+
+-- Flat folders: watch direct children.
+local function hookFlatFolder(folder)
+	if not folder then return end
+	folder.ChildAdded:Connect(function(child)
+		if child:IsA("Model") or child:IsA("Folder") then
+			requestRefresh()
+		end
+	end)
+	folder.ChildRemoved:Connect(function(child)
+		containerVisibility[child] = nil
+		requestRefresh()
+	end)
+end
+
+-- Nested folder (Zones): watch theme subfolders appearing, AND watch
+-- each theme subfolder for stage models appearing inside it.
+local function hookThemeFolder(themeFolder)
+	themeFolder.ChildAdded:Connect(function(child)
+		if child:IsA("Model") or child:IsA("Folder") then
+			requestRefresh()
+		end
+	end)
+	themeFolder.ChildRemoved:Connect(function(child)
+		containerVisibility[child] = nil
+		requestRefresh()
+	end)
+end
+
+local function hookNestedFolder(rootFolder)
+	if not rootFolder then return end
+	for _, themeFolder in ipairs(rootFolder:GetChildren()) do
+		if themeFolder:IsA("Folder") then
+			hookThemeFolder(themeFolder)
+		end
+	end
+	rootFolder.ChildAdded:Connect(function(child)
+		if child:IsA("Folder") then
+			hookThemeFolder(child)
+			requestRefresh()
+		end
+	end)
+end
+
+hookNestedFolder(zonesFolder)
+hookFlatFolder(bubblesFolder)
+hookFlatFolder(decorFolder)
+
+task.defer(refreshAll)
