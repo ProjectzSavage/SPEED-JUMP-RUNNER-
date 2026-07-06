@@ -35,20 +35,15 @@ local level = leaderstats:WaitForChild("Level")
 local wins = leaderstats:WaitForChild("Wins")
 local rebirths = leaderstats:WaitForChild("Rebirths")
 
-tutorialCompleted.Value = false
-
-local guidePart = gui:FindFirstChild("GuidePart")
-if not guidePart then
-	guidePart = Instance.new("Part")
-	guidePart.Name = "GuidePart"
-	guidePart.Anchored = true
-	guidePart.CanCollide = false
-	guidePart.CanTouch = false
-	guidePart.CanQuery = false
-	guidePart.Transparency = 1
-	guidePart.Size = Vector3.new(1, 1, 1)
-	guidePart.Parent = workspace
-end
+local guidePart = gui:FindFirstChild("GuidePart") or Instance.new("Part")
+guidePart.Name = "GuidePart"
+guidePart.Anchored = true
+guidePart.CanCollide = false
+guidePart.CanTouch = false
+guidePart.CanQuery = false
+guidePart.Transparency = 1
+guidePart.Size = Vector3.new(1, 1, 1)
+guidePart.Parent = workspace
 
 local attachment0 = guidePart:FindFirstChild("A0") or Instance.new("Attachment")
 attachment0.Name = "A0"
@@ -57,11 +52,8 @@ local attachment1 = guidePart:FindFirstChild("A1") or Instance.new("Attachment")
 attachment1.Name = "A1"
 attachment1.Parent = guidePart
 
-local beam = guidePart:FindFirstChildOfClass("Beam")
-if not beam then
-	beam = Instance.new("Beam")
-	beam.Parent = guidePart
-end
+local beam = guidePart:FindFirstChildOfClass("Beam") or Instance.new("Beam")
+beam.Parent = guidePart
 beam.Attachment0 = attachment1
 beam.Attachment1 = attachment0
 beam.Width0 = 2
@@ -78,19 +70,16 @@ beam.TextureSpeed = -2.5
 beam.Segments = 20
 beam.Enabled = false
 
-local overlay = gui:FindFirstChild("DarkOverlay")
-if not overlay then
-	overlay = Instance.new("Frame")
-	overlay.Name = "DarkOverlay"
-	overlay.Size = UDim2.fromScale(1, 1)
-	overlay.Position = UDim2.fromScale(0, 0)
-	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
-	overlay.BackgroundTransparency = 1
-	overlay.BorderSizePixel = 0
-	overlay.Visible = false
-	overlay.ZIndex = 50
-	overlay.Parent = gui
-end
+local overlay = gui:FindFirstChild("DarkOverlay") or Instance.new("Frame")
+overlay.Name = "DarkOverlay"
+overlay.Size = UDim2.fromScale(1, 1)
+overlay.Position = UDim2.fromScale(0, 0)
+overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+overlay.BackgroundTransparency = 1
+overlay.BorderSizePixel = 0
+overlay.Visible = false
+overlay.ZIndex = 50
+overlay.Parent = gui
 
 local sideArrow = gui:FindFirstChild("SideArrow") or Instance.new("ImageLabel")
 sideArrow.Name = "SideArrow"
@@ -120,6 +109,8 @@ local originalPositions = {}
 local highlighted = {}
 local rebirthHighlightMode = nil
 local padTouchCompleted = false
+local tutorialDisplayOrder = gui.DisplayOrder
+local originalRebirthDisplayOrder = rebirthGui.DisplayOrder
 
 local function cacheOriginalPositions()
 	for _, obj in ipairs(mainMenuButtons:GetDescendants()) do
@@ -172,6 +163,7 @@ end
 local function restoreMainButtonsAnimated()
 	if restoredMainButtons then return end
 	restoredMainButtons = true
+
 	local buttons = {}
 	for _, obj in ipairs(mainMenuButtons:GetDescendants()) do
 		if obj:IsA("GuiObject") and (obj:IsA("TextButton") or obj:IsA("ImageButton")) then
@@ -179,15 +171,15 @@ local function restoreMainButtonsAnimated()
 			table.insert(buttons, obj)
 		end
 	end
-	table.sort(buttons, function(a, b) return a.AbsolutePosition.X < b.AbsolutePosition.X end)
+
+	table.sort(buttons, function(a, b)
+		return a.AbsolutePosition.X < b.AbsolutePosition.X
+	end)
+
 	for index, button in ipairs(buttons) do
 		local original = originalPositions[button] or button.Position
-
 		if button ~= freeRewardsButton then
 			button.Position = UDim2.new(original.X.Scale, original.X.Offset - 120, original.Y.Scale, original.Y.Offset)
-			button.BackgroundTransparency = 1
-		end
-		if button ~= freeRewardsButton then
 			for _, child in ipairs(button:GetDescendants()) do
 				if child:IsA("TextLabel") or child:IsA("TextButton") then
 					child.TextTransparency = 1
@@ -197,21 +189,23 @@ local function restoreMainButtonsAnimated()
 				end
 			end
 		end
+
 		task.delay((index - 1) * 0.08, function()
-			TweenService:Create(button, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-				Position = original,
-				BackgroundTransparency = 0,
-			}):Play()
-			for _, child in ipairs(button:GetDescendants()) do
-				if child:IsA("TextLabel") or child:IsA("TextButton") then
-					TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-						TextTransparency = 0,
-						TextStrokeTransparency = 0,
-					}):Play()
-				elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
-					TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-						ImageTransparency = 0,
-					}):Play()
+			if button ~= freeRewardsButton then
+				TweenService:Create(button, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					Position = original,
+				}):Play()
+				for _, child in ipairs(button:GetDescendants()) do
+					if child:IsA("TextLabel") or child:IsA("TextButton") then
+						TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+							TextTransparency = 0,
+							TextStrokeTransparency = 0,
+						}):Play()
+					elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
+						TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+							ImageTransparency = 0,
+						}):Play()
+					end
 				end
 			end
 		end)
@@ -246,17 +240,20 @@ local function clearHighlights()
 			obj.ZIndex = oldZ
 		end
 	end
-	local rebirthStroke = rebirthActionButton:FindFirstChildOfClass("UIStroke")
-	if rebirthStroke then
-		rebirthStroke.Thickness = 1
-		rebirthStroke.Transparency = 0
-	end
 	table.clear(highlighted)
 	overlay.Visible = false
 	overlay.BackgroundTransparency = 1
 	sideArrow.Visible = false
 	topArrow.Visible = false
 	rebirthHighlightMode = nil
+	rebirthGui.DisplayOrder = originalRebirthDisplayOrder
+
+	local rebirthStroke = rebirthActionButton:FindFirstChildOfClass("UIStroke")
+	if rebirthStroke then
+		rebirthStroke.Thickness = 1
+		rebirthStroke.Transparency = 0
+		rebirthStroke.Color = Color3.fromRGB(255, 255, 255)
+	end
 end
 
 local function raiseZ(obj, minZ)
@@ -284,6 +281,7 @@ local function applyRebirthToggleHighlight()
 	clearHighlights()
 	rebirthHighlightMode = "Toggle"
 	setOverlayVisible()
+	rebirthGui.DisplayOrder = tutorialDisplayOrder + 100
 	raiseZ(rebirthToggleButton, 70)
 	sideArrow.Visible = true
 	sideArrow.Rotation = 270
@@ -293,16 +291,19 @@ local function applyRebirthFrameHighlight()
 	if rebirthHighlightMode == "Frame" then return end
 	clearHighlights()
 	rebirthHighlightMode = "Frame"
+	rebirthGui.DisplayOrder = tutorialDisplayOrder + 10
 	setOverlayVisible()
 	raiseZ(rebirthGuiMain, 70)
-	raiseZ(rebirthActionButton, 80)
+	raiseZ(rebirthActionButton, 85)
 	local stroke = rebirthActionButton:FindFirstChildOfClass("UIStroke")
-	if stroke then
-		stroke.Enabled = true
-		stroke.Thickness = 4
-		stroke.Color = Color3.fromRGB(255, 230, 90)
-		stroke.Transparency = 0
+	if not stroke then
+		stroke = Instance.new("UIStroke")
+		stroke.Parent = rebirthActionButton
 	end
+	stroke.Enabled = true
+	stroke.Thickness = 4
+	stroke.Color = Color3.fromRGB(255, 230, 90)
+	stroke.Transparency = 0
 	topArrow.Visible = true
 	topArrow.Rotation = 180
 end
@@ -419,14 +420,14 @@ RunService.RenderStepped:Connect(function()
 		local pos = rebirthToggleButton.AbsolutePosition
 		local size = rebirthToggleButton.AbsoluteSize
 		local xOffset = math.sin(t * 4) * 12
-		sideArrow.Position = UDim2.fromOffset(pos.X + size.X + 50 + xOffset, pos.Y + size.Y * 0.5)
+		sideArrow.Position = UDim2.fromOffset(pos.X + size.X + 70 + xOffset, pos.Y + size.Y * 0.5)
 	end
 
 	if topArrow.Visible and rebirthGuiMain.Visible then
 		local pos = rebirthActionButton.AbsolutePosition
 		local size = rebirthActionButton.AbsoluteSize
 		local yOffset = math.sin(t * 4) * 10
-		topArrow.Position = UDim2.fromOffset(pos.X + size.X * 0.5, pos.Y - 40 + yOffset)
+		topArrow.Position = UDim2.fromOffset(pos.X + size.X * 0.5, pos.Y - 55 + yOffset)
 	end
 end)
 
