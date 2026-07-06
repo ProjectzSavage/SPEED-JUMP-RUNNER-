@@ -12,6 +12,8 @@ local frame = holder:WaitForChild("LevelUpBoostFrame")
 local nameLabel = frame:WaitForChild("NameLabel")
 local timerLabel = frame:WaitForChild("TimerLabel")
 
+frame.Visible = false
+
 local stats = player:WaitForChild("Stats")
 local boostEndTime = stats:WaitForChild("LevelUpSpeedBoostEndTime")
 
@@ -19,15 +21,13 @@ local function refresh()
 	local active = boostEndTime.Value > tick()
 	frame.Visible = active
 	if not active then return end
-
 	nameLabel.Text = string.format("x%.1f Speed Boost", BOOST_MULTIPLIER)
 	timerLabel.Text = string.format("Time Left: %.1fs", math.max(0, boostEndTime.Value - tick()))
 end
 
 boostEndTime.Changed:Connect(refresh)
-
 RunService.RenderStepped:Connect(function()
-	if frame.Visible then
+	if frame.Visible or boostEndTime.Value > tick() then
 		refresh()
 	end
 end)
