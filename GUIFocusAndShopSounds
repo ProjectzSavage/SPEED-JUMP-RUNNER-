@@ -13,8 +13,8 @@ local DEFAULT_FOV = camera and camera.FieldOfView or 70
 local FOCUSED_FOV = 58
 local BLUR_SIZE = 16
 
-local ROBUX_CLICK_SOUND_ID = "rbxassetid://6895079853"
-local PURCHASE_SUCCESS_SOUND_ID = "rbxassetid://135308045"
+local ROBUX_CLICK_SOUND_ID = ""
+local PURCHASE_SUCCESS_SOUND_ID = ""
 
 local FOV_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local BLUR_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -25,6 +25,9 @@ local trackedGuiFrames = {
 	{ guiName = "RebirthGUI", frameName = "MainFrame" },
 	{ guiName = "SpeedShopGUI", frameName = "ShopFrame" },
 	{ guiName = "KeyboardSoundGUI", frameName = "MainFrame" },
+	{ guiName = "InventoryGUI", frameName = "MainFrame" },
+	{ guiName = "FreeRewardsGUI", frameName = "MainFrame" },
+	{ guiName = "SettingsGUI", frameName = "MainFrame" },
 }
 
 local blur = Lighting:FindFirstChild("GuiFocusBlur")
