@@ -9,6 +9,10 @@ local guiList = {
 	{ name = "SkinGUI", frame = "MainFrame" },
 	{ name = "KeyboardSoundGUI", frame = "MainFrame" },
 	{ name = "InventoryGUI", frame = "MainFrame" },
+	{ name = "FreeRewardsGUI", frameName = "MainFrame" },
+	{ name = "SettingsGUI", frameName = "MainFrame" },
+	{ name = "WinsShopGUI", frameName = "MainFrame" },
+	{ name = "SpeedShopGUI", frameName = "ShopFrame" },
 }
 
 local function getFrame(guiName, frameName)
