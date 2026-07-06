@@ -100,6 +100,7 @@ local TRAMPOLINE_REQUIREMENTS = {
 	["5x"] = { expMult = 5.0, bouncePower = 82, gamePassId = 1899793448, displayName = "Golden Trampoline" },
 	["10x"] = { expMult = 10.0, bouncePower = 92, gamePassId = 1898311468, displayName = "Electric Trampoline" },
 	["100x"] = { expMult = 100.0, bouncePower = 120, gamePassId = 1898449573, displayName = "Admin Trampoline" },
+	["120x"] = { expMult = 120.0, bouncePower = 120, gamePassId = 1898449573, displayName = "Admin Trampoline", adminSpawnOnly = true },
 }
 
 local function getTrampBoostFolder()
@@ -191,9 +192,9 @@ for _, aura in pairs(AURAS) do
 end
 
 local BASE_REAL_SPEED = 5
-local BASE_EXP_PER_JUMP = 100
+local BASE_EXP_PER_JUMP = 35
 local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.5
-local LEVEL_UP_SPEED_BOOST_DURATION = 7
+local LEVEL_UP_SPEED_BOOST_DURATION = 3
 local MAX_LEVEL = 1000000
 local MAX_REAL_SPEED_CAP = 250
 local JUMP_DEBOUNCE = 0.1
@@ -218,9 +219,9 @@ local trampolinePassOwnership = {}
 local trampolinePromptCooldown = {}
 
 local REVIVE_PRODUCTS = {
-	Early = { productId = 0, price = 19 },
-	Mid = { productId = 0, price = 39 },
-	Late = { productId = 0, price = 69 },
+	Early = { productId = 3607231878, price = 19 },
+	Mid = { productId = 3607231878, price = 39 },
+	Late = { productId = 3607231878, price = 69 },
 }
 
 local overlapParams = OverlapParams.new()
@@ -973,6 +974,9 @@ local function getTrampolineAccess(player, part)
 	end
 
 	local data = TRAMPOLINE_REQUIREMENTS[keyName]
+	if data and data.adminSpawnOnly and part:GetAttribute("AdminTrampolineActive") ~= true then
+		return false, data.expMult, data.bouncePower, "This trampoline is not active yet."
+	end
 	if not data then
 		return true, 1, part:GetAttribute("BouncePower") or TRAMPOLINE_BOUNCE_DEFAULT
 	end
@@ -1165,6 +1169,7 @@ local function createPlayerStats(player)
 	ensureValue(stats, "IntValue", "Jumps", 0)
 	ensureValue(stats, "IntValue", "PlayTimeSeconds", 0)
 	ensureValue(stats, "IntValue", "Multiplier", 1)
+	ensureValue(stats, "IntValue", "CurrentStage", 1)
 	ensureValue(stats, "NumberValue", "SpeedBoost", 0)
 	ensureValue(stats, "NumberValue", "TitleMultiplier", 1)
 	ensureValue(stats, "NumberValue", "WinsGamepassBoost", 1)
@@ -1592,6 +1597,39 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
 	end
 end)
 
+local function revivePlayerToStage(player, stageNumber)
+	local stagesFolder = workspace:FindFirstChild("stages")
+	if not stagesFolder then return false end
+
+	local stagePart = stagesFolder:FindFirstChild(tostring(stageNumber))
+	if not stagePart or not stagePart:IsA("BasePart") then
+		return false
+	end
+
+	local function teleportCharacter(character)
+		local root = character:WaitForChild("HumanoidRootPart", 5)
+		local humanoid = character:WaitForChild("Humanoid", 5)
+		if not root or not humanoid then return false end
+
+		humanoid.Health = humanoid.MaxHealth
+		character:PivotTo(stagePart.CFrame + Vector3.new(0, 4, 0))
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		return true
+	end
+
+	if player.Character and player.Character:FindFirstChild("Humanoid") then
+		local hum = player.Character:FindFirstChild("Humanoid")
+		if hum and hum.Health > 0 then
+			return teleportCharacter(player.Character)
+		end
+	end
+
+	player:LoadCharacter()
+	local character = player.Character or player.CharacterAdded:Wait()
+	return teleportCharacter(character)
+end
+
 MarketplaceService.ProcessReceipt = function(receiptInfo)
 	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
 	if not player then
@@ -1602,6 +1640,53 @@ MarketplaceService.ProcessReceipt = function(receiptInfo)
 	if potionConfig then
 		local grantedPotion = grantPurchasablePotion(player, potionConfig)
 		if grantedPotion then
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local pendingRevive = pendingRevives[player.UserId]
+	if pendingRevive and receiptInfo.ProductId == pendingRevive.productId then
+		local stats = player:FindFirstChild("Stats")
+		local currentStage = stats and stats:FindFirstChild("CurrentStage")
+		if currentStage then
+			currentStage.Value = pendingRevive.stage
+		end
+		player:SetAttribute("RevivedThisSpawn", true)
+		local stagesFolder = workspace:FindFirstChild("stages")
+		local stagePart = stagesFolder and stagesFolder:FindFirstChild(tostring(pendingRevive.stage))
+
+		local function reviveCharacter(character)
+			if not character then return false end
+			local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
+			local root = character:FindFirstChild("HumanoidRootPart") or character:WaitForChild("HumanoidRootPart", 5)
+			if not humanoid or not root or not stagePart or not stagePart:IsA("BasePart") then
+				return false
+			end
+
+			humanoid.Health = humanoid.MaxHealth
+			character:PivotTo(stagePart.CFrame + Vector3.new(0, 4, 0))
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			return true
+		end
+
+		local revived = false
+		if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+			local hum = player.Character:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				revived = reviveCharacter(player.Character)
+			end
+		end
+
+		if not revived then
+			player:LoadCharacterAsync()
+			local character = player.Character or player.CharacterAdded:Wait()
+			revived = reviveCharacter(character)
+		end
+
+		pendingRevives[player.UserId] = nil
+		if revived then
 			return Enum.ProductPurchaseDecision.PurchaseGranted
 		end
 		return Enum.ProductPurchaseDecision.NotProcessedYet
@@ -2026,6 +2111,14 @@ local function onPlayerAdded(player)
 
 	player.CharacterAdded:Connect(function(character)
 		local humanoid = character:WaitForChild("Humanoid")
+
+		local stats = player:FindFirstChild("Stats")
+		local currentStage = stats and stats:FindFirstChild("CurrentStage")
+		if currentStage and not player:GetAttribute("RevivedThisSpawn") then
+			currentStage.Value = 1
+		end
+		player:SetAttribute("RevivedThisSpawn", false)
+
 		humanoid.Died:Connect(function()
 			task.delay(0.1, function()
 				if player.Parent then
@@ -2083,9 +2176,22 @@ task.spawn(function()
 						elseif endValue - now <= 300 and warningState[potion.key] ~= endValue then
 							warningState[potion.key] = endValue
 							local potionName = (potion.name and potion.name.Value ~= "" and potion.name.Value) or (potion.key .. " Potion")
-							notifyPlayer(player, "Potion Ending Soon", potionName .. " expires in 5 minutes.", "Warning", 4, nil, {
-								icon = potion.icon and potion.icon.Value or nil,
-							})
+							local remaining = math.max(0, endValue - now)
+							local mins = math.floor(remaining / 60)
+							local secs = remaining % 60
+							local timeText = string.format("%02d:%02d", mins, secs)
+
+							notifyPlayer(
+								player,
+								"Potion Ending Soon",
+								potionName .. " expires in " .. timeText .. ".",
+								"Warning",
+								4,
+								nil,
+								{
+									icon = potion.icon and potion.icon.Value or nil,
+								}
+							)
 						end
 					end
 				end
