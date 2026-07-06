@@ -1,0 +1,183 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local SoundService = game:GetService("SoundService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local Icon = require(ReplicatedStorage:WaitForChild("Icon"))
+
+local gui = playerGui:WaitForChild("SettingsGUI")
+local mainFrame = gui:WaitForChild("MainFrame")
+local titleLabel = mainFrame:WaitForChild("TitleLabel")
+local closeButton = mainFrame:WaitForChild("CloseButton")
+
+local shadowsToggleButton = mainFrame:WaitForChild("ShadowsToggleButton")
+local shadowsStatusLabel = mainFrame:WaitForChild("ShadowsStatusLabel")
+
+local musicToggleButton = mainFrame:WaitForChild("MusicToggleButton")
+local musicStatusLabel = mainFrame:WaitForChild("MusicStatusLabel")
+
+local sfxToggleButton = mainFrame:WaitForChild("SFXToggleButton")
+local sfxStatusLabel = mainFrame:WaitForChild("SFXStatusLabel")
+
+local screenShakeToggleButton = mainFrame:WaitForChild("ScreenShakeToggleButton")
+local screenShakeStatusLabel = mainFrame:WaitForChild("ScreenShakeStatusLabel")
+
+local function setCastShadowsForWorkspace(enabled)
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			obj.CastShadow = enabled
+		end
+	end
+end
+
+local function setBoolAttribute(name, value)
+	player:SetAttribute(name, value)
+end
+
+local function getBoolAttribute(name, default)
+	local v = player:GetAttribute(name)
+	if v == nil then
+		player:SetAttribute(name, default)
+		return default
+	end
+	return v
+end
+
+Lighting.GlobalShadows = true
+setCastShadowsForWorkspace(true)
+
+setBoolAttribute("MusicEnabled", true)
+setBoolAttribute("SFXEnabled", true)
+setBoolAttribute("ScreenShakeEnabled", true)
+
+local openPos = mainFrame.Position
+local closedPos = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale + 0.06, openPos.Y.Offset)
+
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+mainFrame.Visible = false
+
+local settingsIcon = Icon.new()
+	:setLabel("Settings")
+	:setImage("rbxassetid://6031280882")
+	:setOrder(999)
+	:bindToggleItem(mainFrame)
+
+local function updateUI()
+	-- Shadows
+	if Lighting.GlobalShadows then
+		shadowsToggleButton.Text = "Disable High Quality" --"Disable Shadows"
+		shadowsToggleButton.BackgroundColor3 = Color3.fromRGB(70, 190, 80)
+		shadowsStatusLabel.Text = "High Quality: Enabled" --"Shadows: Enabled"
+	else
+		shadowsToggleButton.Text = "Enable High Quality" --"Enable Shadows"
+		shadowsToggleButton.BackgroundColor3 = Color3.fromRGB(190, 80, 80)
+		shadowsStatusLabel.Text = "Low Quality: Enabled" --"Shadows: Disabled"
+	end
+
+	-- Music
+	local musicEnabled = getBoolAttribute("MusicEnabled", true)
+	if musicEnabled then
+		musicToggleButton.Text = "Pause Music"
+		musicToggleButton.BackgroundColor3 = Color3.fromRGB(70, 190, 80)
+		musicStatusLabel.Text = "Music: On"
+	else
+		musicToggleButton.Text = "Resume Music"
+		musicToggleButton.BackgroundColor3 = Color3.fromRGB(190, 80, 80)
+		musicStatusLabel.Text = "Music: Paused"
+	end
+
+	-- SFX
+	local sfxEnabled = getBoolAttribute("SFXEnabled", true)
+	if sfxEnabled then
+		sfxToggleButton.Text = "Disable SFX"
+		sfxToggleButton.BackgroundColor3 = Color3.fromRGB(70, 190, 80)
+		sfxStatusLabel.Text = "SFX: Enabled"
+	else
+		sfxToggleButton.Text = "Enable SFX"
+		sfxToggleButton.BackgroundColor3 = Color3.fromRGB(190, 80, 80)
+		sfxStatusLabel.Text = "SFX: Disabled"
+	end
+
+	-- Screen shake
+	local shakeEnabled = getBoolAttribute("ScreenShakeEnabled", true)
+	if shakeEnabled then
+		screenShakeToggleButton.Text = "Disable Screen Shake"
+		screenShakeToggleButton.BackgroundColor3 = Color3.fromRGB(70, 190, 80)
+		screenShakeStatusLabel.Text = "Screen Shake: Enabled"
+	else
+		screenShakeToggleButton.Text = "Enable Screen Shake"
+		screenShakeToggleButton.BackgroundColor3 = Color3.fromRGB(190, 80, 80)
+		screenShakeStatusLabel.Text = "Screen Shake: Disabled"
+	end
+end
+
+settingsIcon:bindEvent("selected", function()
+	mainFrame.Visible = true
+	mainFrame.Position = closedPos
+	uiScale.Scale = 0.94
+
+	TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = openPos,
+	}):Play()
+
+	TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	}):Play()
+end)
+
+settingsIcon:bindEvent("deselected", function()
+	local tween1 = TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = closedPos,
+	})
+	local tween2 = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Scale = 0.94,
+	})
+	tween1:Play()
+	tween2:Play()
+	tween1.Completed:Connect(function()
+		mainFrame.Visible = false
+		mainFrame.Position = openPos
+		uiScale.Scale = 1
+	end)
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+	settingsIcon:deselect()
+end)
+
+shadowsToggleButton.MouseButton1Click:Connect(function()
+	Lighting.GlobalShadows = not Lighting.GlobalShadows
+	setCastShadowsForWorkspace(Lighting.GlobalShadows)
+	updateUI()
+end)
+
+musicToggleButton.MouseButton1Click:Connect(function()
+	local newValue = not getBoolAttribute("MusicEnabled", true)
+	setBoolAttribute("MusicEnabled", newValue)
+	updateUI()
+end)
+
+sfxToggleButton.MouseButton1Click:Connect(function()
+	local newValue = not getBoolAttribute("SFXEnabled", true)
+	setBoolAttribute("SFXEnabled", newValue)
+	updateUI()
+end)
+
+screenShakeToggleButton.MouseButton1Click:Connect(function()
+	local newValue = not getBoolAttribute("ScreenShakeEnabled", true)
+	setBoolAttribute("ScreenShakeEnabled", newValue)
+	updateUI()
+end)
+
+updateUI()
