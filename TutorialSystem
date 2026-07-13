@@ -1,3 +1,4 @@
+-- LocalScript in StarterPlayerScripts
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -10,16 +11,15 @@ local stats = player:WaitForChild("Stats")
 local leaderstats = player:WaitForChild("leaderstats")
 
 local completeTutorialRewardRemote = ReplicatedStorage:WaitForChild("CompleteTutorialReward")
+local onboardingRemote = ReplicatedStorage:FindFirstChild("AnalyticsOnboardingStep")
 
 local gui = playerGui:WaitForChild("TutorialGUI")
 local mainFrame = gui:WaitForChild("MainFrame")
 local instructionLabel = mainFrame:WaitForChild("InstructionLabel")
+local skipButton = mainFrame:WaitForChild("SkipButton")
 
 local mainMenuButtons = playerGui:WaitForChild("MainMenuButtons")
-local freeRewardsButton = mainMenuButtons:WaitForChild("FreeRewardsToggleButton")
-
 local levelExpGui = playerGui:WaitForChild("LevelExpGUI")
-local autoJumpButton = levelExpGui:WaitForChild("MainFrame"):WaitForChild("AutoJumpButton")
 local rebirthGui = playerGui:WaitForChild("RebirthGUI")
 local rebirthGuiMain = rebirthGui:WaitForChild("MainFrame")
 local rebirthActionButton = rebirthGuiMain:WaitForChild("RebirthButton")
@@ -28,7 +28,6 @@ if not rebirthToggleButton then
 	error("RebirthToggleButton not found inside MainMenuButtons descendants")
 end
 
-local groupRewardClaimed = stats:WaitForChild("GroupRewardClaimed")
 local tutorialCompleted = stats:WaitForChild("TutorialCompleted")
 local stepMultiplier = stats:WaitForChild("StepMultiplier")
 local level = leaderstats:WaitForChild("Level")
@@ -60,8 +59,8 @@ beam.Width0 = 2
 beam.Width1 = 2
 beam.FaceCamera = true
 beam.Color = ColorSequence.new(Color3.fromRGB(255, 220, 70))
-beam.LightEmission = 1
-beam.Brightness = 4
+beam.LightEmission = 0.5
+beam.Brightness = 1
 beam.Transparency = NumberSequence.new(0.05)
 beam.Texture = "rbxassetid://3371283711"
 beam.TextureMode = Enum.TextureMode.Wrap
@@ -98,7 +97,7 @@ topArrow.Image = "rbxassetid://3371283711"
 topArrow.Size = UDim2.fromScale(0.06, 0.10)
 topArrow.AnchorPoint = Vector2.new(0.5, 0.5)
 topArrow.Visible = false
-topArrow.ZIndex = 85
+topArrow.ZIndex = 1000
 topArrow.Parent = gui
 
 local currentTarget = nil
@@ -111,6 +110,17 @@ local rebirthHighlightMode = nil
 local padTouchCompleted = false
 local tutorialDisplayOrder = gui.DisplayOrder
 local originalRebirthDisplayOrder = rebirthGui.DisplayOrder
+local firedFunnelSteps = {}
+
+local function logTutorialStep(step, stepName)
+	if not onboardingRemote then return end
+	if firedFunnelSteps[step] then return end
+	firedFunnelSteps[step] = true
+	onboardingRemote:FireServer({
+		step = step,
+		stepName = stepName,
+	})
+end
 
 local function cacheOriginalPositions()
 	for _, obj in ipairs(mainMenuButtons:GetDescendants()) do
@@ -130,12 +140,17 @@ local function getStepPad2Target()
 	return workspace:FindFirstChild("2", true)
 end
 
+local function getTrampolineTarget()
+	return workspace:FindFirstChild("1x", true)
+end
+
 local stepPad2Target = getStepPad2Target()
+local trampolineTarget = getTrampolineTarget()
 local stepPad2RequiredWins = 2
 if stepPad2Target and stepPad2Target:IsA("BasePart") then
 	stepPad2RequiredWins = math.max(2, tonumber(stepPad2Target:GetAttribute("WinsRequired")) or 2)
 	stepPad2Target.Touched:Connect(function(hit)
-		if tutorialStep ~= 3 then return end
+		if tutorialStep ~= 2 then return end
 		local character = hit:FindFirstAncestorOfClass("Model")
 		if character == player.Character then
 			padTouchCompleted = true
@@ -178,34 +193,30 @@ local function restoreMainButtonsAnimated()
 
 	for index, button in ipairs(buttons) do
 		local original = originalPositions[button] or button.Position
-		if button ~= freeRewardsButton then
-			button.Position = UDim2.new(original.X.Scale, original.X.Offset - 120, original.Y.Scale, original.Y.Offset)
-			for _, child in ipairs(button:GetDescendants()) do
-				if child:IsA("TextLabel") or child:IsA("TextButton") then
-					child.TextTransparency = 1
-					child.TextStrokeTransparency = 1
-				elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
-					child.ImageTransparency = 1
-				end
+		button.Position = UDim2.new(original.X.Scale, original.X.Offset - 120, original.Y.Scale, original.Y.Offset)
+		for _, child in ipairs(button:GetDescendants()) do
+			if child:IsA("TextLabel") or child:IsA("TextButton") then
+				child.TextTransparency = 1
+				child.TextStrokeTransparency = 1
+			elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
+				child.ImageTransparency = 1
 			end
 		end
 
 		task.delay((index - 1) * 0.08, function()
-			if button ~= freeRewardsButton then
-				TweenService:Create(button, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-					Position = original,
-				}):Play()
-				for _, child in ipairs(button:GetDescendants()) do
-					if child:IsA("TextLabel") or child:IsA("TextButton") then
-						TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-							TextTransparency = 0,
-							TextStrokeTransparency = 0,
-						}):Play()
-					elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
-						TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-							ImageTransparency = 0,
-						}):Play()
-					end
+			TweenService:Create(button, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Position = original,
+			}):Play()
+			for _, child in ipairs(button:GetDescendants()) do
+				if child:IsA("TextLabel") or child:IsA("TextButton") then
+					TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						TextTransparency = 0,
+						TextStrokeTransparency = 0,
+					}):Play()
+				elseif child:IsA("ImageLabel") or child:IsA("ImageButton") then
+					TweenService:Create(child, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+						ImageTransparency = 0,
+					}):Play()
 				end
 			end
 		end)
@@ -236,9 +247,7 @@ end
 
 local function clearHighlights()
 	for obj, oldZ in pairs(highlighted) do
-		if obj and obj.Parent then
-			obj.ZIndex = oldZ
-		end
+		if obj and obj.Parent then obj.ZIndex = oldZ end
 	end
 	table.clear(highlighted)
 	overlay.Visible = false
@@ -280,7 +289,6 @@ local function applyRebirthToggleHighlight()
 	if rebirthHighlightMode == "Toggle" then return end
 	clearHighlights()
 	rebirthHighlightMode = "Toggle"
-	setOverlayVisible()
 	rebirthGui.DisplayOrder = tutorialDisplayOrder + 100
 	raiseZ(rebirthToggleButton, 70)
 	sideArrow.Visible = true
@@ -291,10 +299,10 @@ local function applyRebirthFrameHighlight()
 	if rebirthHighlightMode == "Frame" then return end
 	clearHighlights()
 	rebirthHighlightMode = "Frame"
-	rebirthGui.DisplayOrder = tutorialDisplayOrder + 10
+	rebirthGui.DisplayOrder = tutorialDisplayOrder + 100
 	setOverlayVisible()
 	raiseZ(rebirthGuiMain, 70)
-	raiseZ(rebirthActionButton, 85)
+	raiseZ(rebirthActionButton, 100)
 	local stroke = rebirthActionButton:FindFirstChildOfClass("UIStroke")
 	if not stroke then
 		stroke = Instance.new("UIStroke")
@@ -313,46 +321,41 @@ function refreshStep()
 		beam.Enabled = false
 		clearHighlights()
 		mainFrame.Visible = false
+		setMainMenuVisible(true)
 		restoreMainButtonsAnimated()
 		return
 	end
 
 	if tutorialStep == 1 then
 		clearHighlights()
-		setMainMenuVisible(true)
+		setMainMenuVisible(false)
 		mainFrame.Visible = true
-		setInstruction("Claim your free reward")
-		setTarget(freeRewardsButton)
-		if groupRewardClaimed.Value then
+		setInstruction("Get " .. tostring(stepPad2RequiredWins) .. " Wins")
+		setTarget(findFirstWinTarget())
+		logTutorialStep(1, "Got First Wins Goal")
+		if wins.Value >= stepPad2RequiredWins then
 			tutorialStep = 2
 			refreshStep()
 		end
 	elseif tutorialStep == 2 then
 		clearHighlights()
-		setMainMenuVisible(false)
-		setInstruction("Get " .. tostring(stepPad2RequiredWins) .. " Wins")
-		setTarget(findFirstWinTarget())
-		if wins.Value >= stepPad2RequiredWins then
+		setInstruction("Touch the 2x step pad")
+		setTarget(stepPad2Target)
+		if padTouchCompleted then
+			logTutorialStep(2, "Touched 2x Step Pad")
 			tutorialStep = 3
 			refreshStep()
 		end
 	elseif tutorialStep == 3 then
 		clearHighlights()
-		setInstruction("Touch the 2x step pad")
-		setTarget(stepPad2Target)
-		if padTouchCompleted then
+		setInstruction("Use Auto Jump or Use the 1x Trampoline and Reach Level 10")
+		setTarget(trampolineTarget)
+		if level.Value >= 10 then
+			logTutorialStep(3, "Reached Level 10")
 			tutorialStep = 4
 			refreshStep()
 		end
 	elseif tutorialStep == 4 then
-		clearHighlights()
-		setInstruction("Turn on Auto Jump and reach Level 10")
-		setTarget(autoJumpButton)
-		if level.Value >= 10 then
-			tutorialStep = 5
-			refreshStep()
-		end
-	elseif tutorialStep == 5 then
 		setMainMenuVisible(true)
 		showOnlyRebirthToggle()
 		setInstruction("Rebirth now")
@@ -363,15 +366,17 @@ function refreshStep()
 			applyRebirthToggleHighlight()
 		end
 		if rebirths.Value >= 1 and not rewardGranted then
+			logTutorialStep(4, "Completed First Rebirth")
 			rewardGranted = true
 			completeTutorialRewardRemote:FireServer()
-			tutorialStep = 6
+			tutorialStep = 5
 			refreshStep()
 		end
-	elseif tutorialStep == 6 then
+	elseif tutorialStep == 5 then
 		beam.Enabled = false
 		clearHighlights()
-		setInstruction("Tutorial complete!")
+		setInstruction("Tutorial complete! Reward granted.")
+		setMainMenuVisible(true)
 		restoreMainButtonsAnimated()
 		task.delay(2, function()
 			mainFrame.Visible = false
@@ -379,14 +384,23 @@ function refreshStep()
 	end
 end
 
-groupRewardClaimed.Changed:Connect(refreshStep)
+skipButton.MouseButton1Click:Connect(function()
+	rewardGranted = true
+	tutorialCompleted.Value = true
+	beam.Enabled = false
+	clearHighlights()
+	setMainMenuVisible(true)
+	restoreMainButtonsAnimated()
+	mainFrame.Visible = false
+end)
+
 wins.Changed:Connect(refreshStep)
 level.Changed:Connect(refreshStep)
 stepMultiplier.Changed:Connect(refreshStep)
 rebirths.Changed:Connect(refreshStep)
 tutorialCompleted.Changed:Connect(refreshStep)
 rebirthGuiMain:GetPropertyChangedSignal("Visible"):Connect(function()
-	if tutorialStep == 5 then
+	if tutorialStep == 4 then
 		refreshStep()
 	end
 end)
@@ -398,19 +412,10 @@ RunService.RenderStepped:Connect(function()
 	if beam.Enabled and currentTarget and root then
 		local startPos = root.Position + Vector3.new(0, 0.8, 0)
 		if typeof(currentTarget) == "Instance" then
-			if currentTarget:IsA("GuiObject") then
-				local cam = workspace.CurrentCamera
-				if cam then
-					local look = cam.CFrame.Position + cam.CFrame.LookVector * 25
-					attachment0.WorldPosition = startPos
-					attachment1.WorldPosition = look
-				end
-			else
-				local targetPart = getTargetPartForModel(currentTarget)
-				if targetPart then
-					attachment0.WorldPosition = startPos
-					attachment1.WorldPosition = targetPart.Position + Vector3.new(0, 3, 0)
-				end
+			local targetPart = getTargetPartForModel(currentTarget)
+			if targetPart then
+				attachment0.WorldPosition = startPos
+				attachment1.WorldPosition = targetPart.Position + Vector3.new(0, 3, 0)
 			end
 		end
 	end
