@@ -4,7 +4,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local SHIFT_Y = 82
+local SHIFT_Y = 175 --82
 
 local OPEN_TWEEN = TweenInfo.new(0.36, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local CLOSE_TWEEN = TweenInfo.new(0.30, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
