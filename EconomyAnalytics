@@ -1,0 +1,51 @@
+local AnalyticsService = game:GetService("AnalyticsService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local logEconomyRemote = ReplicatedStorage:FindFirstChild("LogEconomyEvent")
+if not logEconomyRemote then
+	logEconomyRemote = Instance.new("RemoteEvent")
+	logEconomyRemote.Name = "LogEconomyEvent"
+	logEconomyRemote.Parent = ReplicatedStorage
+end
+
+local VALID_FLOW = {
+	Source = Enum.AnalyticsEconomyFlowType.Source,
+	Sink = Enum.AnalyticsEconomyFlowType.Sink,
+}
+
+local VALID_TXN = {
+	IAP = Enum.AnalyticsEconomyTransactionType.IAP,
+	Shop = Enum.AnalyticsEconomyTransactionType.Shop,
+	Gameplay = Enum.AnalyticsEconomyTransactionType.Gameplay,
+	ContextualPurchase = Enum.AnalyticsEconomyTransactionType.ContextualPurchase,
+	TimedReward = Enum.AnalyticsEconomyTransactionType.TimedReward,
+	Onboarding = Enum.AnalyticsEconomyTransactionType.Onboarding,
+}
+
+logEconomyRemote.OnServerEvent:Connect(function(player, payload)
+	if typeof(payload) ~= "table" then return end
+
+	local flow = VALID_FLOW[payload.flow]
+	local currency = tostring(payload.currency or "Unknown")
+	local amount = tonumber(payload.amount)
+	local balance = tonumber(payload.balance)
+	local txn = VALID_TXN[payload.transactionType]
+	local itemSku = tostring(payload.itemSku or "Unknown")
+
+	if not flow or not amount or not balance or not txn then
+		warn("[EconomyAnalytics] Invalid payload from", player.Name)
+		return
+	end
+
+	pcall(function()
+		AnalyticsService:LogEconomyEvent(
+			player,
+			flow,
+			currency,
+			amount,
+			balance,
+			txn,
+			itemSku
+		)
+	end)
+end)
