@@ -1,0 +1,287 @@
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+
+local PROFILE_STORE = DataStoreService:GetDataStore("SJR_Profile_V2")
+local AUTOSAVE_INTERVAL = 120
+
+local function expRequiredForLevel(level)
+	return math.floor(100 + (level ^ 1.45) * 35)
+end
+
+local function ensureValue(parent, className, name, defaultValue)
+	local obj = parent:FindFirstChild(name)
+	if not obj then
+		obj = Instance.new(className)
+		obj.Name = name
+		obj.Value = defaultValue
+		obj.Parent = parent
+	end
+	return obj
+end
+
+local function ensureFolders(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+	end
+
+	local stats = player:FindFirstChild("Stats")
+	if not stats then
+		stats = Instance.new("Folder")
+		stats.Name = "Stats"
+		stats.Parent = player
+	end
+
+	local ownedAuras = stats:FindFirstChild("OwnedAuras")
+	if not ownedAuras then
+		ownedAuras = Instance.new("Folder")
+		ownedAuras.Name = "OwnedAuras"
+		ownedAuras.Parent = stats
+	end
+
+	local ownedSkins = stats:FindFirstChild("OwnedSkins")
+	if not ownedSkins then
+		ownedSkins = Instance.new("Folder")
+		ownedSkins.Name = "OwnedSkins"
+		ownedSkins.Parent = stats
+	end
+
+	return leaderstats, stats, ownedAuras, ownedSkins
+end
+
+local function serializeBoolFolder(folder)
+	local data = {}
+	if not folder then return data end
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:IsA("BoolValue") then
+			data[child.Name] = child.Value
+		end
+	end
+	return data
+end
+
+local function applyBoolFolder(folder, map)
+	if typeof(map) ~= "table" then return end
+	for name, value in pairs(map) do
+		local obj = folder:FindFirstChild(name)
+		if not obj then
+			obj = Instance.new("BoolValue")
+			obj.Name = name
+			obj.Parent = folder
+		end
+		obj.Value = value == true
+	end
+end
+
+local function serializePlayer(player)
+	local leaderstats, stats, ownedAuras, ownedSkins = ensureFolders(player)
+
+	return {
+		Leaderstats = {
+			Level = (leaderstats:FindFirstChild("Level") and leaderstats.Level.Value) or 0,
+			Rebirths = (leaderstats:FindFirstChild("Rebirths") and leaderstats.Rebirths.Value) or 0,
+			Wins = (leaderstats:FindFirstChild("Wins") and leaderstats.Wins.Value) or 0,
+			CurrentSkin = (leaderstats:FindFirstChild("CurrentSkin") and leaderstats.CurrentSkin.Value) or "None",
+			Title = (leaderstats:FindFirstChild("Title") and leaderstats.Title.Value) or "Newbie",
+		},
+		Stats = {
+			EXP = (stats:FindFirstChild("EXP") and stats.EXP.Value) or 0,
+			Jumps = (stats:FindFirstChild("Jumps") and stats.Jumps.Value) or 0,
+			Multiplier = (stats:FindFirstChild("Multiplier") and stats.Multiplier.Value) or 1,
+			SpeedBoost = (stats:FindFirstChild("SpeedBoost") and stats.SpeedBoost.Value) or 0,
+			TitleMultiplier = (stats:FindFirstChild("TitleMultiplier") and stats.TitleMultiplier.Value) or 1,
+			UseCustomSpeed = (stats:FindFirstChild("UseCustomSpeed") and stats.UseCustomSpeed.Value) or false,
+			SelectedRealSpeed = (stats:FindFirstChild("SelectedRealSpeed") and stats.SelectedRealSpeed.Value) or 0,
+			CurrentStage = (stats:FindFirstChild("CurrentStage") and stats.CurrentStage.Value) or 1,
+			StepMultiplier = (stats:FindFirstChild("StepMultiplier") and stats.StepMultiplier.Value) or 1,
+			EquippedStepOrder = (stats:FindFirstChild("EquippedStepOrder") and stats.EquippedStepOrder.Value) or 1,
+			CurrentAura = (stats:FindFirstChild("CurrentAura") and stats.CurrentAura.Value) or "None",
+			AuraMultiplier = (stats:FindFirstChild("AuraMultiplier") and stats.AuraMultiplier.Value) or 1,
+			KeyboardSoundId = (stats:FindFirstChild("KeyboardSoundId") and stats.KeyboardSoundId.Value) or "",
+			KeyboardSoundName = (stats:FindFirstChild("KeyboardSoundName") and stats.KeyboardSoundName.Value) or "",
+			BubbleSoundId = (stats:FindFirstChild("BubbleSoundId") and stats.BubbleSoundId.Value) or "",
+			HasPremiumKeyboardSounds = (stats:FindFirstChild("HasPremiumKeyboardSounds") and stats.HasPremiumKeyboardSounds.Value) or false,
+			GroupRewardClaimed = (stats:FindFirstChild("GroupRewardClaimed") and stats.GroupRewardClaimed.Value) or false,
+			FavoriteRewardClaimed = (stats:FindFirstChild("FavoriteRewardClaimed") and stats.FavoriteRewardClaimed.Value) or false,
+			TutorialCompleted = (stats:FindFirstChild("TutorialCompleted") and stats.TutorialCompleted.Value) or false,
+			GroupRewardDisplaySpeedBonus = (stats:FindFirstChild("GroupRewardDisplaySpeedBonus") and stats.GroupRewardDisplaySpeedBonus.Value) or 0,
+			PlayTimeSeconds = (stats:FindFirstChild("PlayTimeSeconds") and stats.PlayTimeSeconds.Value) or 0,
+			ExpBoost = (player:FindFirstChild("ExpBoost") and player.ExpBoost.Value) or 1,
+			ComboExpMultiplier = (stats:FindFirstChild("ComboExpMultiplier") and stats.ComboExpMultiplier.Value) or 1,
+			ComboCount = (stats:FindFirstChild("ComboCount") and stats.ComboCount.Value) or 0,
+			WinsGamepassBoost = (stats:FindFirstChild("WinsGamepassBoost") and stats.WinsGamepassBoost.Value) or 1,
+			RebirthGamepassBoost = (stats:FindFirstChild("RebirthGamepassBoost") and stats.RebirthGamepassBoost.Value) or 1,
+			LevelUpSpeedBoostEndTime = (stats:FindFirstChild("LevelUpSpeedBoostEndTime") and stats.LevelUpSpeedBoostEndTime.Value) or 0,
+
+			SpeedPotionMultiplier = (stats:FindFirstChild("SpeedPotionMultiplier") and stats.SpeedPotionMultiplier.Value) or 1,
+			SpeedPotionEndTime = (stats:FindFirstChild("SpeedPotionEndTime") and stats.SpeedPotionEndTime.Value) or 0,
+			SpeedPotionName = (stats:FindFirstChild("SpeedPotionName") and stats.SpeedPotionName.Value) or "",
+			SpeedPotionIcon = (stats:FindFirstChild("SpeedPotionIcon") and stats.SpeedPotionIcon.Value) or "",
+			GlobalSpeedPotionMultiplier = (stats:FindFirstChild("GlobalSpeedPotionMultiplier") and stats.GlobalSpeedPotionMultiplier.Value) or 1,
+			GlobalSpeedPotionEndTime = (stats:FindFirstChild("GlobalSpeedPotionEndTime") and stats.GlobalSpeedPotionEndTime.Value) or 0,
+			GlobalSpeedPotionName = (stats:FindFirstChild("GlobalSpeedPotionName") and stats.GlobalSpeedPotionName.Value) or "",
+			GlobalSpeedPotionIcon = (stats:FindFirstChild("GlobalSpeedPotionIcon") and stats.GlobalSpeedPotionIcon.Value) or "",
+
+			ExpPotionMultiplier = (stats:FindFirstChild("ExpPotionMultiplier") and stats.ExpPotionMultiplier.Value) or 1,
+			ExpPotionEndTime = (stats:FindFirstChild("ExpPotionEndTime") and stats.ExpPotionEndTime.Value) or 0,
+			ExpPotionName = (stats:FindFirstChild("ExpPotionName") and stats.ExpPotionName.Value) or "",
+			ExpPotionIcon = (stats:FindFirstChild("ExpPotionIcon") and stats.ExpPotionIcon.Value) or "",
+			LocalExpPotionMultiplier = (stats:FindFirstChild("LocalExpPotionMultiplier") and stats.LocalExpPotionMultiplier.Value) or 1,
+			LocalExpPotionEndTime = (stats:FindFirstChild("LocalExpPotionEndTime") and stats.LocalExpPotionEndTime.Value) or 0,
+			LocalExpPotionName = (stats:FindFirstChild("LocalExpPotionName") and stats.LocalExpPotionName.Value) or "",
+			LocalExpPotionIcon = (stats:FindFirstChild("LocalExpPotionIcon") and stats.LocalExpPotionIcon.Value) or "",
+			GlobalExpPotionMultiplier = (stats:FindFirstChild("GlobalExpPotionMultiplier") and stats.GlobalExpPotionMultiplier.Value) or 1,
+			GlobalExpPotionEndTime = (stats:FindFirstChild("GlobalExpPotionEndTime") and stats.GlobalExpPotionEndTime.Value) or 0,
+			GlobalExpPotionName = (stats:FindFirstChild("GlobalExpPotionName") and stats.GlobalExpPotionName.Value) or "",
+			GlobalExpPotionIcon = (stats:FindFirstChild("GlobalExpPotionIcon") and stats.GlobalExpPotionIcon.Value) or "",
+
+			WinsPotionMultiplier = (stats:FindFirstChild("WinsPotionMultiplier") and stats.WinsPotionMultiplier.Value) or 1,
+			WinsPotionEndTime = (stats:FindFirstChild("WinsPotionEndTime") and stats.WinsPotionEndTime.Value) or 0,
+			WinsPotionName = (stats:FindFirstChild("WinsPotionName") and stats.WinsPotionName.Value) or "",
+			WinsPotionIcon = (stats:FindFirstChild("WinsPotionIcon") and stats.WinsPotionIcon.Value) or "",
+			LocalWinsPotionMultiplier = (stats:FindFirstChild("LocalWinsPotionMultiplier") and stats.LocalWinsPotionMultiplier.Value) or 1,
+			LocalWinsPotionEndTime = (stats:FindFirstChild("LocalWinsPotionEndTime") and stats.LocalWinsPotionEndTime.Value) or 0,
+			LocalWinsPotionName = (stats:FindFirstChild("LocalWinsPotionName") and stats.LocalWinsPotionName.Value) or "",
+			LocalWinsPotionIcon = (stats:FindFirstChild("LocalWinsPotionIcon") and stats.LocalWinsPotionIcon.Value) or "",
+			GlobalWinsPotionMultiplier = (stats:FindFirstChild("GlobalWinsPotionMultiplier") and stats.GlobalWinsPotionMultiplier.Value) or 1,
+			GlobalWinsPotionEndTime = (stats:FindFirstChild("GlobalWinsPotionEndTime") and stats.GlobalWinsPotionEndTime.Value) or 0,
+			GlobalWinsPotionName = (stats:FindFirstChild("GlobalWinsPotionName") and stats.GlobalWinsPotionName.Value) or "",
+			GlobalWinsPotionIcon = (stats:FindFirstChild("GlobalWinsPotionIcon") and stats.GlobalWinsPotionIcon.Value) or "",
+		},
+		OwnedAuras = serializeBoolFolder(ownedAuras),
+		OwnedSkins = serializeBoolFolder(ownedSkins),
+	}
+end
+
+local function applyData(player, data)
+	if typeof(data) ~= "table" then return end
+	local leaderstats, stats, ownedAuras, ownedSkins = ensureFolders(player)
+
+	local ls = data.Leaderstats or {}
+	local level = ensureValue(leaderstats, "IntValue", "Level", 0)
+	level.Value = ls.Level or 0
+	ensureValue(leaderstats, "IntValue", "Rebirths", 0).Value = ls.Rebirths or 0
+	ensureValue(leaderstats, "IntValue", "Wins", 0).Value = ls.Wins or 0
+	ensureValue(leaderstats, "StringValue", "CurrentSkin", "None").Value = ls.CurrentSkin or "None"
+	ensureValue(leaderstats, "StringValue", "Title", "Newbie").Value = ls.Title or "Newbie"
+
+	local st = data.Stats or {}
+	ensureValue(stats, "NumberValue", "EXP", 0).Value = st.EXP or 0
+	ensureValue(stats, "NumberValue", "EXPRequired", expRequiredForLevel(level.Value)).Value = expRequiredForLevel(level.Value)
+	ensureValue(stats, "IntValue", "Jumps", 0).Value = st.Jumps or 0
+	ensureValue(stats, "IntValue", "Multiplier", 1).Value = st.Multiplier or 1
+	ensureValue(stats, "NumberValue", "SpeedBoost", 0).Value = st.SpeedBoost or 0
+	ensureValue(stats, "NumberValue", "TitleMultiplier", 1).Value = st.TitleMultiplier or 1
+	ensureValue(stats, "BoolValue", "UseCustomSpeed", false).Value = st.UseCustomSpeed == true
+	ensureValue(stats, "NumberValue", "SelectedRealSpeed", 0).Value = st.SelectedRealSpeed or 0
+	ensureValue(stats, "IntValue", "CurrentStage", 1).Value = st.CurrentStage or 1
+	ensureValue(stats, "NumberValue", "StepMultiplier", 1).Value = st.StepMultiplier or 1
+	ensureValue(stats, "IntValue", "EquippedStepOrder", 1).Value = st.EquippedStepOrder or 1
+	ensureValue(stats, "StringValue", "CurrentAura", "None").Value = st.CurrentAura or "None"
+	ensureValue(stats, "NumberValue", "AuraMultiplier", 1).Value = st.AuraMultiplier or 1
+	ensureValue(stats, "StringValue", "KeyboardSoundId", "").Value = st.KeyboardSoundId or ""
+	ensureValue(stats, "StringValue", "KeyboardSoundName", "").Value = st.KeyboardSoundName or ""
+	ensureValue(stats, "StringValue", "BubbleSoundId", "").Value = st.BubbleSoundId or ""
+	ensureValue(stats, "BoolValue", "HasPremiumKeyboardSounds", false).Value = st.HasPremiumKeyboardSounds == true
+	ensureValue(stats, "BoolValue", "GroupRewardClaimed", false).Value = st.GroupRewardClaimed == true
+	ensureValue(stats, "BoolValue", "FavoriteRewardClaimed", false).Value = st.FavoriteRewardClaimed == true
+	ensureValue(stats, "BoolValue", "TutorialCompleted", false).Value = st.TutorialCompleted == true
+	ensureValue(stats, "NumberValue", "GroupRewardDisplaySpeedBonus", 0).Value = st.GroupRewardDisplaySpeedBonus or 0
+	ensureValue(stats, "IntValue", "PlayTimeSeconds", 0).Value = st.PlayTimeSeconds or 0
+	ensureValue(player, "NumberValue", "ExpBoost", 1).Value = st.ExpBoost or 1
+	ensureValue(stats, "NumberValue", "ComboExpMultiplier", 1).Value = st.ComboExpMultiplier or 1
+	ensureValue(stats, "IntValue", "ComboCount", 0).Value = st.ComboCount or 0
+	ensureValue(stats, "NumberValue", "WinsGamepassBoost", 1).Value = st.WinsGamepassBoost or 1
+	ensureValue(stats, "NumberValue", "RebirthGamepassBoost", 1).Value = st.RebirthGamepassBoost or 1
+	ensureValue(stats, "NumberValue", "LevelUpSpeedBoostEndTime", 0).Value = st.LevelUpSpeedBoostEndTime or 0
+
+	ensureValue(stats, "NumberValue", "SpeedPotionMultiplier", 1).Value = st.SpeedPotionMultiplier or 1
+	ensureValue(stats, "NumberValue", "SpeedPotionEndTime", 0).Value = st.SpeedPotionEndTime or 0
+	ensureValue(stats, "StringValue", "SpeedPotionName", "").Value = st.SpeedPotionName or ""
+	ensureValue(stats, "StringValue", "SpeedPotionIcon", "").Value = st.SpeedPotionIcon or ""
+	ensureValue(stats, "NumberValue", "GlobalSpeedPotionMultiplier", 1).Value = st.GlobalSpeedPotionMultiplier or 1
+	ensureValue(stats, "NumberValue", "GlobalSpeedPotionEndTime", 0).Value = st.GlobalSpeedPotionEndTime or 0
+	ensureValue(stats, "StringValue", "GlobalSpeedPotionName", "").Value = st.GlobalSpeedPotionName or ""
+	ensureValue(stats, "StringValue", "GlobalSpeedPotionIcon", "").Value = st.GlobalSpeedPotionIcon or ""
+
+	ensureValue(stats, "NumberValue", "ExpPotionMultiplier", 1).Value = st.ExpPotionMultiplier or 1
+	ensureValue(stats, "NumberValue", "ExpPotionEndTime", 0).Value = st.ExpPotionEndTime or 0
+	ensureValue(stats, "StringValue", "ExpPotionName", "").Value = st.ExpPotionName or ""
+	ensureValue(stats, "StringValue", "ExpPotionIcon", "").Value = st.ExpPotionIcon or ""
+	ensureValue(stats, "NumberValue", "LocalExpPotionMultiplier", 1).Value = st.LocalExpPotionMultiplier or 1
+	ensureValue(stats, "NumberValue", "LocalExpPotionEndTime", 0).Value = st.LocalExpPotionEndTime or 0
+	ensureValue(stats, "StringValue", "LocalExpPotionName", "").Value = st.LocalExpPotionName or ""
+	ensureValue(stats, "StringValue", "LocalExpPotionIcon", "").Value = st.LocalExpPotionIcon or ""
+	ensureValue(stats, "NumberValue", "GlobalExpPotionMultiplier", 1).Value = st.GlobalExpPotionMultiplier or 1
+	ensureValue(stats, "NumberValue", "GlobalExpPotionEndTime", 0).Value = st.GlobalExpPotionEndTime or 0
+	ensureValue(stats, "StringValue", "GlobalExpPotionName", "").Value = st.GlobalExpPotionName or ""
+	ensureValue(stats, "StringValue", "GlobalExpPotionIcon", "").Value = st.GlobalExpPotionIcon or ""
+
+	ensureValue(stats, "NumberValue", "WinsPotionMultiplier", 1).Value = st.WinsPotionMultiplier or 1
+	ensureValue(stats, "NumberValue", "WinsPotionEndTime", 0).Value = st.WinsPotionEndTime or 0
+	ensureValue(stats, "StringValue", "WinsPotionName", "").Value = st.WinsPotionName or ""
+	ensureValue(stats, "StringValue", "WinsPotionIcon", "").Value = st.WinsPotionIcon or ""
+	ensureValue(stats, "NumberValue", "LocalWinsPotionMultiplier", 1).Value = st.LocalWinsPotionMultiplier or 1
+	ensureValue(stats, "NumberValue", "LocalWinsPotionEndTime", 0).Value = st.LocalWinsPotionEndTime or 0
+	ensureValue(stats, "StringValue", "LocalWinsPotionName", "").Value = st.LocalWinsPotionName or ""
+	ensureValue(stats, "StringValue", "LocalWinsPotionIcon", "").Value = st.LocalWinsPotionIcon or ""
+	ensureValue(stats, "NumberValue", "GlobalWinsPotionMultiplier", 1).Value = st.GlobalWinsPotionMultiplier or 1
+	ensureValue(stats, "NumberValue", "GlobalWinsPotionEndTime", 0).Value = st.GlobalWinsPotionEndTime or 0
+	ensureValue(stats, "StringValue", "GlobalWinsPotionName", "").Value = st.GlobalWinsPotionName or ""
+	ensureValue(stats, "StringValue", "GlobalWinsPotionIcon", "").Value = st.GlobalWinsPotionIcon or ""
+
+	applyBoolFolder(ownedAuras, data.OwnedAuras)
+	applyBoolFolder(ownedSkins, data.OwnedSkins)
+end
+
+local function savePlayer(player)
+	local userId = tostring(player.UserId)
+	local data = serializePlayer(player)
+	local ok, err = pcall(function()
+		PROFILE_STORE:UpdateAsync(userId, function()
+			return data
+		end)
+	end)
+	if not ok then
+		warn("[DataStore] Failed to save", player.Name, err)
+	end
+end
+
+local function loadPlayer(player)
+	local userId = tostring(player.UserId)
+	local ok, data = pcall(function()
+		return PROFILE_STORE:GetAsync(userId)
+	end)
+	if ok and data then
+		applyData(player, data)
+	elseif not ok then
+		warn("[DataStore] Failed to load", player.Name, data)
+	end
+end
+
+Players.PlayerAdded:Connect(function(player)
+	ensureFolders(player)
+	task.defer(function()
+		loadPlayer(player)
+	end)
+end)
+
+Players.PlayerRemoving:Connect(savePlayer)
+
+game:BindToClose(function()
+	for _, player in ipairs(Players:GetPlayers()) do
+		savePlayer(player)
+	end
+	task.wait(2)
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(AUTOSAVE_INTERVAL)
+		for _, player in ipairs(Players:GetPlayers()) do
+			savePlayer(player)
+		end
+	end
+end)
