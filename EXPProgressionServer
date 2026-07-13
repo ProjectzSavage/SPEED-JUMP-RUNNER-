@@ -2267,10 +2267,10 @@ end)
 
 task.spawn(function()
 	local thresholds = {
-		3600, -- 1 hour
-		1800, -- 30 minutes
-		600,  -- 10 minutes
 		60,   -- 1 minute
+		600,  -- 10 minutes
+		1800, -- 30 minutes
+		3600, -- 1 hour
 	}
 
 	local function thresholdLabel(seconds)
@@ -2310,10 +2310,20 @@ task.spawn(function()
 							warningState[potion.key .. "_" .. tostring(threshold)] = nil
 						end
 					else
-						for _, threshold in ipairs(thresholds) do
+						local remaining = endValue - now
+
+						for i = #thresholds, 1, -1 do
+							local threshold = thresholds[i]
 							local key = potion.key .. "_" .. tostring(threshold)
-							local remaining = endValue - now
+
 							if remaining <= threshold and warningState[key] ~= endValue then
+								-- clear larger threshold keys so only one message fires
+								for _, otherThreshold in ipairs(thresholds) do
+									if otherThreshold ~= threshold then
+										warningState[potion.key .. "_" .. tostring(otherThreshold)] = nil
+									end
+								end
+
 								warningState[key] = endValue
 
 								local potionName = (potion.name and potion.name.Value ~= "" and potion.name.Value) or (potion.key .. " Potion")
@@ -2321,6 +2331,8 @@ task.spawn(function()
 								notifyPlayer(player, "Potion Ending Soon", potionName .. " has " .. thresholdLabel(threshold) .. " left.", "Warning", 4, nil, {
 									icon = potion.icon and potion.icon.Value or nil,
 								})
+
+								break
 							end
 						end
 					end
