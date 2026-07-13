@@ -88,9 +88,9 @@ local function getNextExpLabel()
 	if current >= 128 then
 		return "MAX EXP", "OWNED"
 	elseif current == 1 then
-		return "2x EXP", "NEXT"
+		return "2x EXP", "NEXT BOOST"
 	else
-		return tostring(math.min(current * 2, 128)) .. "x EXP", "NEXT"
+		return tostring(math.min(current * 2, 128)) .. "x EXP", "NEXT BOOST"
 	end
 end
 
