@@ -1,0 +1,91 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local gui = script.Parent
+
+local statName = gui:GetAttribute("LeaderboardStat") or "Speed"
+local root = gui:WaitForChild("Root")
+local columnHeader = root:WaitForChild("ColumnHeader")
+local listScroll = root:WaitForChild("ListScroll")
+local template = listScroll:WaitForChild("RowTemplate")
+
+local getLeaderboardData = ReplicatedStorage:WaitForChild("GetLeaderboardData")
+
+template.Visible = false
+
+local header = root:FindFirstChild("Header")
+if header then
+	header.Visible = true
+end
+
+local function formatNumber(n)
+	n = tonumber(n) or 0
+	if n >= 1e12 then return string.format("%.2fT", n / 1e12) end
+	if n >= 1e9 then return string.format("%.2fB", n / 1e9) end
+	if n >= 1e6 then return string.format("%.2fM", n / 1e6) end
+	if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
+	return tostring(math.floor(n))
+end
+
+local function clearRows()
+	for _, child in ipairs(listScroll:GetChildren()) do
+		if child:IsA("Frame") and child ~= template then
+			child:Destroy()
+		end
+	end
+end
+
+local function refreshBoard()
+	clearRows()
+
+	local data = {}
+	local success, result = pcall(function()
+		return getLeaderboardData:InvokeServer(statName, 25)
+	end)
+	if success and type(result) == "table" then
+		data = result
+	end
+
+	for _, entry in ipairs(data) do
+		local row = template:Clone()
+		row.Visible = true
+		row.Name = "Row_" .. tostring(entry.Rank)
+		row.LayoutOrder = entry.Rank
+		row.Parent = listScroll
+
+		local avatar = row:WaitForChild("Avatar")
+		local nameLabel = row:WaitForChild("Name")
+		local rankLabel = row:WaitForChild("Rank")
+		local valueLabel = row:WaitForChild("Value")
+
+		if entry.UserId then
+			local thumb, ready = Players:GetUserThumbnailAsync(
+				entry.UserId,
+				Enum.ThumbnailType.HeadShot,
+				Enum.ThumbnailSize.Size100x100
+			)
+			avatar.Image = thumb
+		end
+
+		nameLabel.Text = entry.Name or "Unknown"
+		rankLabel.Text = "#" .. tostring(entry.Rank)
+		valueLabel.Text = formatNumber(entry.Value)
+	end
+
+	local layout = listScroll:FindFirstChildOfClass("UIListLayout")
+	if layout then
+		listScroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 12)
+	end
+end
+
+local valueHeader = columnHeader:FindFirstChild("Value")
+if valueHeader then
+	valueHeader.Text = statName
+end
+
+refreshBoard()
+
+while task.wait(20) do
+	refreshBoard()
+end
