@@ -2,16 +2,16 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local REBIRTH_REQUIREMENTS = {
-	[1] = { level = 10, multiplier = 2 },
-	[2] = { level = 20, multiplier = 3 },
-	[3] = { level = 30, multiplier = 4 },
-	[4] = { level = 40, multiplier = 5 },
-	[5] = { level = 50, multiplier = 6 },
-	[6] = { level = 60, multiplier = 7 },
-	[7] = { level = 70, multiplier = 8 },
-	[8] = { level = 80, multiplier = 9 },
-	[9] = { level = 90, multiplier = 10 },
-	[10] = { level = 100, multiplier = 11 },
+	[1] = { level = 10, multiplier = 1.5 },
+	[2] = { level = 30, multiplier = 2 },
+	[3] = { level = 50, multiplier = 3.5 },
+	[4] = { level = 80, multiplier = 4 },
+	--[5] = { level = 120, multiplier = 4.5 },
+	--[6] = { level = 60, multiplier = 7 },
+	--[7] = { level = 70, multiplier = 8 },
+	--[8] = { level = 80, multiplier = 9 },
+	--[9] = { level = 90, multiplier = 10 },
+	--[10] = { level = 100, multiplier = 11 },
 }
 
 local rebirthRemote = ReplicatedStorage:WaitForChild("RebirthRequest")
