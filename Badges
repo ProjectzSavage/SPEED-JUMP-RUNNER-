@@ -1,0 +1,46 @@
+local Players = game:GetService("Players")
+local BadgeService = game:GetService("BadgeService")
+
+local WELCOME_BADGE_ID = 2173502243891301
+local REBIRTH_ONCE_BADGE_ID = 2601103552576514
+
+local function safeHasBadge(userId, badgeId)
+	if not badgeId or badgeId <= 0 then return false end
+	local ok, result = pcall(function()
+		return BadgeService:UserHasBadgeAsync(userId, badgeId)
+	end)
+	return ok and result or false
+end
+
+local function safeAwardBadge(userId, badgeId)
+	if not badgeId or badgeId <= 0 then return end
+	local alreadyHas = safeHasBadge(userId, badgeId)
+	if alreadyHas then return end
+	pcall(function()
+		BadgeService:AwardBadgeAsync(userId, badgeId)
+	end)
+end
+
+local function hookPlayer(player)
+	-- Welcome badge on join if missing
+	safeAwardBadge(player.UserId, WELCOME_BADGE_ID)
+
+	local leaderstats = player:WaitForChild("leaderstats", 10)
+	if not leaderstats then return end
+	local rebirths = leaderstats:WaitForChild("Rebirths", 10)
+	if not rebirths then return end
+
+	local function checkRebirthBadge()
+		if rebirths.Value >= 1 then
+			safeAwardBadge(player.UserId, REBIRTH_ONCE_BADGE_ID)
+		end
+	end
+
+	checkRebirthBadge()
+	rebirths.Changed:Connect(checkRebirthBadge)
+end
+
+Players.PlayerAdded:Connect(hookPlayer)
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(hookPlayer, player)
+end
