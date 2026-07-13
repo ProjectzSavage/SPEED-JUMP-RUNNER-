@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 local CollectionService = game:GetService("CollectionService")
+local AnalyticsService = game:GetService("AnalyticsService")
 
 local DEFAULT_STEP_MULTIPLIERS = {
 	{ winsRequired = 0, multiplier = 1, order = 1 },
@@ -99,8 +100,39 @@ local TRAMPOLINE_REQUIREMENTS = {
 	["2x"] = { expMult = 2.0, bouncePower = 72, rebirths = 2 },
 	["5x"] = { expMult = 5.0, bouncePower = 82, gamePassId = 1899793448, displayName = "Golden Trampoline" },
 	["10x"] = { expMult = 10.0, bouncePower = 92, gamePassId = 1898311468, displayName = "Electric Trampoline" },
-	["100x"] = { expMult = 100.0, bouncePower = 120, gamePassId = 1898449573, displayName = "Admin Trampoline" },
-	["120x"] = { expMult = 120.0, bouncePower = 120, gamePassId = 1898449573, displayName = "Admin Trampoline", adminSpawnOnly = true },
+	["100x"] = { expMult = 50.0, bouncePower = 120, gamePassId = 1898449573, displayName = "Admin Trampoline" },
+	["120x"] = {
+		expMult = 60.0,
+		bouncePower = 140,
+		gamePassId = 1898449573,
+		displayName = "Admin Trampoline",
+		adminSpawnOnly = true,
+	},
+}
+--for funnel
+local ROBUX_PRICE_BY_EXP_MULTIPLIER = {
+	[2] = 1895058318,
+	[4] = 1895304331,
+	[8] = 1895190351,
+	[16] = 1895196330,
+	[32] = 1896776308,
+	[64] = 1896614326,
+	[128] = 1896264324,
+}
+
+local ROBUX_PRICE_BY_SPEED_PRODUCT = {
+	Speed5 = 3602686765,
+	Speed10 = 3602686871,
+	Speed20 = 3602686961,
+	Speed50 = 3602688723,
+	Speed100 = 3602688792,
+	Speed210 = 3602688853,
+}
+
+local ROBUX_PRICE_BY_WINS_PRODUCT = {
+	Wins50 = 3607228536,
+	Wins100 = 3607228647,
+	Wins210 = 3607228812,
 }
 
 local function getTrampBoostFolder()
@@ -131,55 +163,55 @@ local AURAS = {
 	Water = {
 		key = "Water",
 		name = "Water Aura",
-		boost = 2.0,
-		winsRequired = 10000000,
-		gamePassId = 0,
-		robuxPrice = nil,
+		boost = 1.5,
+		winsCost = 150,
+		gamePassId = 1907005474,
+		robuxPrice = 29,
 		templateName = "WaterAura",
 	},
 	Fire = {
 		key = "Fire",
 		name = "Fire Aura",
-		boost = 2.5,
-		winsRequired = 25000000,
-		gamePassId = 0,
-		robuxPrice = nil,
+		boost = 1.75,
+		winsCost = 250,
+		gamePassId = 1907047473,
+		robuxPrice = 49,
 		templateName = "FireAura",
 	},
 	Electric = {
 		key = "Electric",
 		name = "Electric Aura",
-		boost = 3.0,
-		winsRequired = 50000000,
-		gamePassId = 0,
-		robuxPrice = nil,
+		boost = 2.0,
+		winsCost = 600,
+		gamePassId = 1907857406,
+		robuxPrice = 99,
 		templateName = "ElectricAura",
 	},
 	BlackFlash = {
 		key = "BlackFlash",
 		name = "Black Flash",
-		boost = 4.0,
-		winsRequired = math.huge,
+		boost = 3.5,
+		winsCost = math.huge,
 		gamePassId = 1882596118,
-		robuxPrice = 799,
+		robuxPrice = 499,
 		templateName = "BlackFlashAura",
 	},
 	WallyWest = {
 		key = "WallyWest",
 		name = "Wally West",
 		boost = 5.0,
-		winsRequired = math.huge,
+		winsCost = math.huge,
 		gamePassId = 1884504099,
-		robuxPrice = 999,
+		robuxPrice = 899,
 		templateName = "WallyWestAura",
 	},
 	Avatar = {
 		key = "Avatar",
 		name = "Avatar",
-		boost = 6.0,
-		winsRequired = math.huge,
+		boost = 6.5,
+		winsCost = math.huge,
 		gamePassId = 1882434177,
-		robuxPrice = 1599,
+		robuxPrice = 1299,
 		templateName = "AvatarAura",
 	},
 }
@@ -193,10 +225,10 @@ end
 
 local BASE_REAL_SPEED = 5
 local BASE_EXP_PER_JUMP = 35
-local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.5
-local LEVEL_UP_SPEED_BOOST_DURATION = 3
-local MAX_LEVEL = 1000000
-local MAX_REAL_SPEED_CAP = 250
+--local LEVEL_UP_SPEED_BOOST_MULTIPLIER = 1.5
+--local LEVEL_UP_SPEED_BOOST_DURATION = 3
+local MAX_LEVEL = 115
+local MAX_REAL_SPEED_CAP = 120
 local JUMP_DEBOUNCE = 0.1
 local INTERACT_DISTANCE = 10
 local BUBBLE_BASE_EXP = 6
@@ -311,6 +343,39 @@ local function notifyPlayer(player, title, message, kind, duration, icon, extra)
 	showNotificationRemote:FireClient(player, payload)
 end
 
+local function logEconomy(player, flowType, currencyName, amount, endBalance, transactionType, itemSku)
+	local flowEnum = flowType == "Source"
+		and Enum.AnalyticsEconomyFlowType.Source
+		or Enum.AnalyticsEconomyFlowType.Sink
+
+	local transactionMap = {
+		IAP = Enum.AnalyticsEconomyTransactionType.IAP,
+		Shop = Enum.AnalyticsEconomyTransactionType.Shop,
+		Gameplay = Enum.AnalyticsEconomyTransactionType.Gameplay,
+		ContextualPurchase = Enum.AnalyticsEconomyTransactionType.ContextualPurchase,
+		TimedReward = Enum.AnalyticsEconomyTransactionType.TimedReward,
+		Onboarding = Enum.AnalyticsEconomyTransactionType.Onboarding,
+	}
+
+	local transactionEnum = transactionMap[transactionType]
+	if not transactionEnum then
+		warn("[Economy] Invalid transaction type:", transactionType)
+		return
+	end
+
+	pcall(function()
+		AnalyticsService:LogEconomyEvent(
+			player,
+			flowEnum,
+			currencyName,
+			amount,
+			endBalance,
+			transactionEnum,
+			itemSku
+		)
+	end)
+end
+
 local function ensureAuraStats(player)
 	local stats = player:FindFirstChild("Stats")
 	if not stats then
@@ -422,15 +487,11 @@ local function ownsAura(player, auraKey)
 	local ownedValue = ownedAuras and ownedAuras:FindFirstChild(auraKey)
 	local purchased = ownedValue and ownedValue.Value == true
 
-	local leaderstats = player:FindFirstChild("leaderstats")
-	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
-	local unlockedByWins = wins and wins.Value >= aura.winsRequired
-
-	return purchased or unlockedByWins
+	return purchased
 end
 
 local function equipAura(player, auraKey)
-	local _, currentAura, auraMultiplier = ensureAuraStats(player)
+	local stats, currentAura, auraMultiplier, ownedAuras = ensureAuraStats(player)
 
 	if auraKey == "None" or auraKey == "" then
 		currentAura.Value = "None"
@@ -444,7 +505,42 @@ local function equipAura(player, auraKey)
 
 	local aura = AURAS[auraKey]
 	if not aura then return false end
-	if not ownsAura(player, auraKey) then return false end
+
+	local ownedValue = ownedAuras:FindFirstChild(auraKey)
+	local alreadyOwned = ownedValue and ownedValue.Value == true
+
+	if not alreadyOwned then
+		local leaderstats = player:FindFirstChild("leaderstats")
+		local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+		if not wins then return false end
+
+		if aura.winsCost and aura.winsCost < math.huge then
+			if wins.Value < aura.winsCost then
+				notifyPlayer(player, "Not Enough Wins", "You need " .. tostring(aura.winsCost) .. " Wins.", "Warning", 3.2)
+				return false
+			end
+
+			wins.Value -= aura.winsCost
+			local logEconomyRemote = ReplicatedStorage:FindFirstChild("LogEconomyEvent")
+			if logEconomyRemote then
+				logEconomyRemote:FireServer(player, {
+					flow = "Sink",
+					currency = "Wins",
+					amount = aura.winsCost,
+					balance = wins.Value,
+					transactionType = "Shop",
+					itemSku = aura.key,
+				})
+			end
+			if ownedValue then
+				ownedValue.Value = true
+			end
+			notifyPlayer(player, "Aura Unlocked", aura.name .. " unlocked!", "Success", 3.5)
+		else
+			-- paid aura not owned
+			return false
+		end
+	end
 
 	currentAura.Value = auraKey
 	auraMultiplier.Value = aura.boost
@@ -904,6 +1000,7 @@ local function grantWinsShopProduct(player, productKey)
 	local currentWins = math.max(0, wins.Value)
 	local gain = math.max(1, math.floor(currentWins * info.percent + 0.5))
 	wins.Value += gain
+	logEconomy(player, "Source", "TotalWins", gain, wins.Value, "IAP", productKey)
 
 	notifyPlayer(player, "THANK YOU!", "+" .. formatNumber(gain) .. " Wins purchased!", "Info", 4.5, nil, {
 		rainbowTitle = true,
@@ -974,11 +1071,12 @@ local function getTrampolineAccess(player, part)
 	end
 
 	local data = TRAMPOLINE_REQUIREMENTS[keyName]
+	if data and data.adminSpawnOnly and part:GetAttribute("AdminTrampolineActive") == true then
+		return true, data.expMult, data.bouncePower
+	end
+
 	if data and data.adminSpawnOnly and part:GetAttribute("AdminTrampolineActive") ~= true then
 		return false, data.expMult, data.bouncePower, "This trampoline is not active yet."
-	end
-	if not data then
-		return true, 1, part:GetAttribute("BouncePower") or TRAMPOLINE_BOUNCE_DEFAULT
 	end
 
 	local stats = player:FindFirstChild("Stats")
@@ -1060,8 +1158,6 @@ local function applyWalkSpeed(player)
 	maxRealStat.Value = maxReal
 	local potionMultiplier = (stats:FindFirstChild("SpeedPotionMultiplier") and stats.SpeedPotionMultiplier.Value) or 1
 	potionMultiplier = math.max(1, potionMultiplier)
-	local levelUpBoostEndTime = (stats:FindFirstChild("LevelUpSpeedBoostEndTime") and stats.LevelUpSpeedBoostEndTime.Value) or 0
-	local levelUpMultiplier = (levelUpBoostEndTime > tick()) and LEVEL_UP_SPEED_BOOST_MULTIPLIER or 1
 
 	local chosen
 	if useCustomSpeed.Value then
@@ -1076,7 +1172,7 @@ local function applyWalkSpeed(player)
 	if char then
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if hum then
-			hum.WalkSpeed = chosen * potionMultiplier * levelUpMultiplier
+			hum.WalkSpeed = chosen * potionMultiplier
 		end
 	end
 
@@ -1215,7 +1311,7 @@ local function createPlayerStats(player)
 	local globalWinsPotionEndTimeValue = ensureValue(stats, "NumberValue", "GlobalWinsPotionEndTime", 0)
 	local globalWinsPotionNameValue = ensureValue(stats, "StringValue", "GlobalWinsPotionName", "")
 	local globalWinsPotionIconValue = ensureValue(stats, "StringValue", "GlobalWinsPotionIcon", "")
-	local levelUpSpeedBoostEndTimeValue = ensureValue(stats, "NumberValue", "LevelUpSpeedBoostEndTime", 0)
+--	local levelUpSpeedBoostEndTimeValue = ensureValue(stats, "NumberValue", "LevelUpSpeedBoostEndTime", 0)
 	if maxRealValue.Value < BASE_REAL_SPEED then maxRealValue.Value = BASE_REAL_SPEED end
 	if stepMultiplierValue.Value < 1 then stepMultiplierValue.Value = 1 end
 	if equippedStepOrderValue.Value < 1 then equippedStepOrderValue.Value = 1 end
@@ -1251,7 +1347,7 @@ local function createPlayerStats(player)
 	if globalWinsPotionEndTimeValue.Value < 0 then globalWinsPotionEndTimeValue.Value = 0 end
 	if globalWinsPotionNameValue.Value == nil then globalWinsPotionNameValue.Value = "" end
 	if globalWinsPotionIconValue.Value == nil then globalWinsPotionIconValue.Value = "" end
-	if levelUpSpeedBoostEndTimeValue.Value < 0 then levelUpSpeedBoostEndTimeValue.Value = 0 end
+--	if levelUpSpeedBoostEndTimeValue.Value < 0 then levelUpSpeedBoostEndTimeValue.Value = 0 end
 
 	-- legacy values kept only so old scripts don't error
 	ensureValue(stats, "NumberValue", "ShopSpeedBonus", 0)
@@ -1299,17 +1395,8 @@ local function addExp(player, amount)
 	end
 
 	if levelUps > 0 then
-		local levelUpBoostEndTime = stats:FindFirstChild("LevelUpSpeedBoostEndTime")
-		if levelUpBoostEndTime then
-			levelUpBoostEndTime.Value = tick() + LEVEL_UP_SPEED_BOOST_DURATION
-			task.delay(LEVEL_UP_SPEED_BOOST_DURATION + 0.05, function()
-				if levelUpBoostEndTime.Parent and levelUpBoostEndTime.Value <= tick() then
 					applyWalkSpeed(player)
 				end
-			end)
-		end
-	end
-
 	applyWalkSpeed(player)
 	if levelUps > 0 then
 		levelUpFxRemote:FireClient(player, levelUps)
@@ -1385,6 +1472,12 @@ local function grantSyncedSpeedProduct(player, productKey)
 	if useCustomSpeed and useCustomSpeed.Value and selectedRealSpeed then
 		selectedRealSpeed.Value = math.clamp(selectedRealSpeed.Value + math.max(0, newMaxReal - oldMaxReal), BASE_REAL_SPEED, newMaxReal)
 		applyWalkSpeed(player)
+		local newDisplayedSpeed = math.max(0, math.floor(speedStat.Value))
+		local displayGain = math.max(0, newDisplayedSpeed - currentDisplayedSpeed)
+
+		if displayGain > 0 then
+			logEconomy(player, "Source", "TotalSpeed", displayGain, newDisplayedSpeed, "IAP", productKey)
+		end
 	end
 
 	return true
@@ -1537,6 +1630,11 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
 	if boughtMultiplier then
 		refreshOwnedExpBoost(player)
 		if wasPurchased then
+			local robuxPrice = ROBUX_PRICE_BY_EXP_MULTIPLIER[boughtMultiplier] or 0
+			if robuxPrice > 0 then
+				logEconomy(player, "Sink", "RobuxSpent", robuxPrice, 0, "IAP", tostring(boughtMultiplier) .. "x EXP")
+			end
+
 			notifyPlayer(player, "THANK YOU!", "Thanks for supporting the game. x" .. tostring(boughtMultiplier) .. " EXP boost unlocked!", "Info", 4.5, nil, {
 				rainbowTitle = true,
 				confetti = true,
@@ -1692,10 +1790,27 @@ MarketplaceService.ProcessReceipt = function(receiptInfo)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
+	local winsShopKey = WINS_SHOP_BY_PRODUCT_ID[receiptInfo.ProductId]
+	if winsShopKey then
+		local granted = grantWinsShopProduct(player, winsShopKey)
+		if granted then
+			local robuxPrice = ROBUX_PRICE_BY_WINS_PRODUCT[winsShopKey] or 0
+			if robuxPrice > 0 then
+				logEconomy(player, "Sink", "RobuxSpent", robuxPrice, 0, "IAP", winsShopKey)
+			end
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
 	local speedShopKey = SPEED_SHOP_BY_PRODUCT_ID[receiptInfo.ProductId]
 	if speedShopKey then
 		local granted = grantSyncedSpeedProduct(player, speedShopKey)
 		if granted then
+			local robuxPrice = ROBUX_PRICE_BY_SPEED_PRODUCT[speedShopKey] or 0
+			if robuxPrice > 0 then
+				logEconomy(player, "Sink", "RobuxSpent", robuxPrice, 0, "IAP", speedShopKey)
+			end
 			local info = SPEED_SHOP_PRODUCTS[speedShopKey]
 			local percentText = tostring(math.floor((info.percent or 0) * 100 + 0.5))
 			notifyPlayer(player, "THANK YOU!", "Thanks for supporting the game. +" .. percentText .. "% synced speed purchased!", "Info", 4.5, nil, {
@@ -1714,6 +1829,8 @@ MarketplaceService.ProcessReceipt = function(receiptInfo)
 
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
+
+
 
 jumpRemote.OnServerEvent:Connect(function(player)
 	local now = tick()
@@ -2008,6 +2125,7 @@ local function setupWinPart(part)
 		local wins = leaderstats and leaderstats:FindFirstChild("Wins")
 		if wins then
 			wins.Value += winsAmount
+			logEconomy(player, "Source", "TotalWins", winsAmount, wins.Value, "Gameplay", "WinPart")
 			autoEquipHighestStepMultiplier(player)
 			notifyPlayer(player, "+" .. tostring(winsAmount) .. " Wins", "You earned " .. tostring(winsAmount) .. " win" .. (winsAmount == 1 and "" or "s") .. "!", "Warning", 3.2, nil, {
 				scaleMultiplier = 1.8,
@@ -2148,6 +2266,21 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 task.spawn(function()
+	local thresholds = {
+		3600, -- 1 hour
+		1800, -- 30 minutes
+		600,  -- 10 minutes
+		60,   -- 1 minute
+	}
+
+	local function thresholdLabel(seconds)
+		if seconds == 3600 then return "1 hour" end
+		if seconds == 1800 then return "30 minutes" end
+		if seconds == 600 then return "10 minutes" end
+		if seconds == 60 then return "1 minute" end
+		return tostring(seconds) .. "s"
+	end
+
 	while true do
 		local tickNow = tick()
 		for _, player in ipairs(Players:GetPlayers()) do
@@ -2161,37 +2294,34 @@ task.spawn(function()
 		for _, player in ipairs(Players:GetPlayers()) do
 			local stats = player:FindFirstChild("Stats")
 			if stats then
+				potionFiveMinuteWarnings[player] = potionFiveMinuteWarnings[player] or {}
 				local warningState = potionFiveMinuteWarnings[player]
-				if warningState then
-					local potionChecks = {
-						{ key = "Speed", endTime = stats:FindFirstChild("SpeedPotionEndTime"), name = stats:FindFirstChild("SpeedPotionName"), icon = stats:FindFirstChild("SpeedPotionIcon") },
-						{ key = "Exp", endTime = stats:FindFirstChild("ExpPotionEndTime"), name = stats:FindFirstChild("ExpPotionName"), icon = stats:FindFirstChild("ExpPotionIcon") },
-						{ key = "Wins", endTime = stats:FindFirstChild("WinsPotionEndTime"), name = stats:FindFirstChild("WinsPotionName"), icon = stats:FindFirstChild("WinsPotionIcon") },
-					}
 
-					for _, potion in ipairs(potionChecks) do
-						local endValue = potion.endTime and potion.endTime.Value or 0
-						if endValue <= now then
-							warningState[potion.key] = nil
-						elseif endValue - now <= 300 and warningState[potion.key] ~= endValue then
-							warningState[potion.key] = endValue
-							local potionName = (potion.name and potion.name.Value ~= "" and potion.name.Value) or (potion.key .. " Potion")
-							local remaining = math.max(0, endValue - now)
-							local mins = math.floor(remaining / 60)
-							local secs = remaining % 60
-							local timeText = string.format("%02d:%02d", mins, secs)
+				local potionChecks = {
+					{ key = "Speed", endTime = stats:FindFirstChild("SpeedPotionEndTime"), name = stats:FindFirstChild("SpeedPotionName"), icon = stats:FindFirstChild("SpeedPotionIcon") },
+					{ key = "Exp", endTime = stats:FindFirstChild("ExpPotionEndTime"), name = stats:FindFirstChild("ExpPotionName"), icon = stats:FindFirstChild("ExpPotionIcon") },
+					{ key = "Wins", endTime = stats:FindFirstChild("WinsPotionEndTime"), name = stats:FindFirstChild("WinsPotionName"), icon = stats:FindFirstChild("WinsPotionIcon") },
+				}
 
-							notifyPlayer(
-								player,
-								"Potion Ending Soon",
-								potionName .. " expires in " .. timeText .. ".",
-								"Warning",
-								4,
-								nil,
-								{
+				for _, potion in ipairs(potionChecks) do
+					local endValue = potion.endTime and potion.endTime.Value or 0
+					if endValue <= now then
+						for _, threshold in ipairs(thresholds) do
+							warningState[potion.key .. "_" .. tostring(threshold)] = nil
+						end
+					else
+						for _, threshold in ipairs(thresholds) do
+							local key = potion.key .. "_" .. tostring(threshold)
+							local remaining = endValue - now
+							if remaining <= threshold and warningState[key] ~= endValue then
+								warningState[key] = endValue
+
+								local potionName = (potion.name and potion.name.Value ~= "" and potion.name.Value) or (potion.key .. " Potion")
+
+								notifyPlayer(player, "Potion Ending Soon", potionName .. " has " .. thresholdLabel(threshold) .. " left.", "Warning", 4, nil, {
 									icon = potion.icon and potion.icon.Value or nil,
-								}
-							)
+								})
+							end
 						end
 					end
 				end
