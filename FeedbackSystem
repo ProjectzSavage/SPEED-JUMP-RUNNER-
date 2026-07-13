@@ -1,0 +1,34 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local AnalyticsService = game:GetService("AnalyticsService")
+
+local submitFeedbackRemote = ReplicatedStorage:FindFirstChild("SubmitFeedback")
+if not submitFeedbackRemote then
+	submitFeedbackRemote = Instance.new("RemoteEvent")
+	submitFeedbackRemote.Name = "SubmitFeedback"
+	submitFeedbackRemote.Parent = ReplicatedStorage
+end
+
+local showNotificationRemote = ReplicatedStorage:FindFirstChild("ShowNotification")
+if not showNotificationRemote then
+	showNotificationRemote = Instance.new("RemoteEvent")
+	showNotificationRemote.Name = "ShowNotification"
+	showNotificationRemote.Parent = ReplicatedStorage
+end
+
+submitFeedbackRemote.OnServerEvent:Connect(function(player, text)
+	if typeof(text) ~= "string" then return end
+	text = text:gsub("^%s+", ""):gsub("%s+$", "")
+	if text == "" then return end
+
+	pcall(function()
+		AnalyticsService:LogCustomEvent(player, "FeedbackSubmitted")
+	end)
+
+	showNotificationRemote:FireClient(player, {
+		title = "Feedback Sent",
+		message = "Thanks for helping improve the game!",
+		kind = "Success",
+		duration = 3,
+		iconKey = "Feedback",
+	})
+end)
