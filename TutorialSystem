@@ -436,5 +436,5 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
-mainFrame.Visible = true
+mainFrame.Visible = not tutorialCompleted.Value
 refreshStep()
