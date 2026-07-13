@@ -20,12 +20,12 @@ local highestUnlockedIndexByPlayer = {}
 
 local TITLES = {
 	{ name = "Newbie", speedReq = 0, jumpReq = 0, rebirthReq = 0, color = Color3.fromRGB(255, 255, 255) },
-	{ name = "Walker", speedReq = 50, jumpReq = 10, rebirthReq = 0, color = Color3.fromRGB(0, 255, 0) },
-	{ name = "Runner", speedReq = 100, jumpReq = 500, rebirthReq = 1, color = Color3.fromRGB(0, 150, 255) },
-	{ name = "Speedster", speedReq = 500, jumpReq = 2000, rebirthReq = 1, color = Color3.fromRGB(255, 165, 0) },
-	{ name = "Lightning", speedReq = 1000, jumpReq = 5000, rebirthReq = 2, color = Color3.fromRGB(255, 215, 0) },
-	{ name = "Sonic", speedReq = 5000, jumpReq = 20000, rebirthReq = 3, color = Color3.fromRGB(255, 0, 255) },
-	{ name = "Flash", speedReq = 25000, jumpReq = 100000, rebirthReq = 4, color = Color3.fromRGB(255, 0, 0) },
+	{ name = "Walker", speedReq = 1000, jumpReq = 50, rebirthReq = 0, color = Color3.fromRGB(0, 255, 0) },
+	{ name = "Runner", speedReq = 5000, jumpReq = 100, rebirthReq = 1, color = Color3.fromRGB(0, 150, 255) },
+	{ name = "Speedster", speedReq = 10000, jumpReq = 300, rebirthReq = 1, color = Color3.fromRGB(255, 165, 0) },
+	{ name = "Lightning", speedReq = 35000, jumpReq = 750, rebirthReq = 2, color = Color3.fromRGB(255, 215, 0) },
+	{ name = "Sonic", speedReq = 75000, jumpReq = 3000, rebirthReq = 3, color = Color3.fromRGB(255, 0, 255) },
+	{ name = "Flash", speedReq = 100000, jumpReq = 10000, rebirthReq = 4, color = Color3.fromRGB(255, 0, 0) },
 }
 
 local TITLE_MULTIPLIERS = {
@@ -143,6 +143,7 @@ local function updatePlayerTitle(player)
 	billboard.Adornee = head
 	billboard.AlwaysOnTop = true
 	billboard.Parent = head
+	billboard.MaxDistance = 100
 
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Size = UDim2.new(1, 0, 1, 0)
