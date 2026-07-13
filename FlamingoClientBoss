@@ -4,7 +4,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
-
+if player:GetAttribute("ScreenShakeEnabled") == false then
+	return
+end
 local SOURCE_FOLDER = ReplicatedStorage:WaitForChild("ClientBosses")
 local SOURCE_MODEL = SOURCE_FOLDER:WaitForChild("Flamingo")
 local LOCAL_MODEL_NAME = "_LocalFlamingoBoss"
