@@ -1,0 +1,79 @@
+local AnalyticsService = game:GetService("AnalyticsService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+local onboardingRemote = ReplicatedStorage:FindFirstChild("AnalyticsOnboardingStep")
+if not onboardingRemote then
+	onboardingRemote = Instance.new("RemoteEvent")
+	onboardingRemote.Name = "AnalyticsOnboardingStep"
+	onboardingRemote.Parent = ReplicatedStorage
+end
+
+local recurringRemote = ReplicatedStorage:FindFirstChild("AnalyticsFunnelStep")
+if not recurringRemote then
+	recurringRemote = Instance.new("RemoteEvent")
+	recurringRemote.Name = "AnalyticsFunnelStep"
+	recurringRemote.Parent = ReplicatedStorage
+end
+
+local MAX_ONBOARDING_STEP = 10
+local funnelSessions = {} -- [player.UserId][funnelName] = guid
+
+local function getSessionId(player, funnelName)
+	funnelSessions[player.UserId] = funnelSessions[player.UserId] or {}
+	local sessions = funnelSessions[player.UserId]
+	if not sessions[funnelName] then
+		sessions[funnelName] = HttpService:GenerateGUID(false)
+	end
+	return sessions[funnelName]
+end
+
+local function resetSessionId(player, funnelName)
+	funnelSessions[player.UserId] = funnelSessions[player.UserId] or {}
+	funnelSessions[player.UserId][funnelName] = HttpService:GenerateGUID(false)
+	return funnelSessions[player.UserId][funnelName]
+end
+
+onboardingRemote.OnServerEvent:Connect(function(player, payload)
+	if typeof(payload) ~= "table" then return end
+
+	local step = tonumber(payload.step)
+	local stepName = tostring(payload.stepName or ("Step " .. tostring(step or "?")))
+
+	if not step or step < 1 or step > MAX_ONBOARDING_STEP then
+		warn("[FunnelAnalytics] Invalid onboarding step from", player.Name, step)
+		return
+	end
+
+	pcall(function()
+		AnalyticsService:LogOnboardingFunnelStepEvent(player, step, stepName)
+	end)
+end)
+
+recurringRemote.OnServerEvent:Connect(function(player, payload)
+	if typeof(payload) ~= "table" then return end
+
+	local funnelName = tostring(payload.funnelName or "UnknownFunnel")
+	local step = tonumber(payload.step)
+	local stepName = tostring(payload.stepName or ("Step " .. tostring(step or "?")))
+
+	if not step or step < 1 then
+		return
+	end
+
+	local sessionId
+	if step == 1 or payload.resetSession == true then
+		sessionId = resetSessionId(player, funnelName)
+	else
+		sessionId = getSessionId(player, funnelName)
+	end
+
+	pcall(function()
+		AnalyticsService:LogFunnelStepEvent(player, funnelName, sessionId, step, stepName)
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	funnelSessions[player.UserId] = nil
+end)
