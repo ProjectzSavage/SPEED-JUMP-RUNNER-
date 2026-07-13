@@ -422,14 +422,17 @@ end
 
 local function refreshOwnedAuraGamepasses(player)
 	local _, _, _, ownedAuras = ensureAuraStats(player)
+
 	for auraKey, aura in pairs(AURAS) do
 		local owned = ownedAuras:FindFirstChild(auraKey)
+
 		if owned and aura.gamePassId and aura.gamePassId > 0 then
 			local ok, hasPass = pcall(function()
 				return MarketplaceService:UserOwnsGamePassAsync(player.UserId, aura.gamePassId)
 			end)
-			if ok then
-				owned.Value = hasPass
+
+			if ok and hasPass then
+				owned.Value = true
 			end
 		end
 	end
@@ -480,14 +483,15 @@ end
 
 local function ownsAura(player, auraKey)
 	local aura = AURAS[auraKey]
-	if not aura then return false end
+	if not aura then
+		return false
+	end
 
 	local stats = player:FindFirstChild("Stats")
 	local ownedAuras = stats and stats:FindFirstChild("OwnedAuras")
 	local ownedValue = ownedAuras and ownedAuras:FindFirstChild(auraKey)
-	local purchased = ownedValue and ownedValue.Value == true
 
-	return purchased
+	return ownedValue and ownedValue.Value == true or false
 end
 
 local function equipAura(player, auraKey)
@@ -521,24 +525,30 @@ local function equipAura(player, auraKey)
 			end
 
 			wins.Value -= aura.winsCost
-			local logEconomyRemote = ReplicatedStorage:FindFirstChild("LogEconomyEvent")
-			if logEconomyRemote then
-				logEconomyRemote:FireServer(player, {
-					flow = "Sink",
-					currency = "Wins",
-					amount = aura.winsCost,
-					balance = wins.Value,
-					transactionType = "Shop",
-					itemSku = aura.key,
-				})
-			end
+
+			logEconomy(
+				player,
+				"Sink",
+				"TotalWins",
+				aura.winsCost,
+				wins.Value,
+				"Shop",
+				aura.key
+			)
+
 			if ownedValue then
 				ownedValue.Value = true
 			end
-			notifyPlayer(player, "Aura Unlocked", aura.name .. " unlocked!", "Success", 3.5)
-		else
-			-- paid aura not owned
-			return false
+
+			currentAura.Value = auraKey
+			auraMultiplier.Value = aura.boost
+			applyAuraToCharacter(player, auraKey)
+
+			notifyPlayer(player, "Aura Equipped", aura.name .. " equipped.", "Success", 3.2, {
+				iconKey = "Aura",
+			})
+
+			return true
 		end
 	end
 
@@ -551,14 +561,57 @@ end
 
 local function grantAuraPurchase(player, auraKey)
 	local aura = AURAS[auraKey]
-	if not aura then return false end
+	if not aura then
+		return false
+	end
+
 	local _, _, _, ownedAuras = ensureAuraStats(player)
 	local owned = ownedAuras:FindFirstChild(auraKey)
-	if owned then
-		owned.Value = true
+
+	if not owned then
+		owned = Instance.new("BoolValue")
+		owned.Name = auraKey
+		owned.Value = false
+		owned.Parent = ownedAuras
 	end
+
+	if owned.Value == true then
+		return true
+	end
+
+	owned.Value = true
 	notifyPlayer(player, "Aura Unlocked", aura.name .. " unlocked!", "Success", 3.5)
 	return true
+end
+
+local function buyAuraWithWins(player, auraKey)
+	local aura = AURAS[auraKey]
+	if not aura then
+		return false, "Invalid"
+	end
+
+	if ownsAura(player, auraKey) then
+		return true, "AlreadyOwned"
+	end
+
+	local cost = tonumber(aura.winsCost)
+	if not cost or cost <= 0 or cost == math.huge then
+		return false, "NotWinsPurchasable"
+	end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+	if not wins then
+		return false, "NoWins"
+	end
+
+	if wins.Value < cost then
+		return false, "NotEnoughWins"
+	end
+
+	wins.Value -= cost
+	grantAuraPurchase(player, auraKey)
+	return true, "Purchased"
 end
 
 local function formatExpRequired(level)
@@ -721,6 +774,8 @@ local function getHighestUnlockedStepMultiplier(wins)
 	return best
 end
 
+
+
 local function getStepMultiplierValue(player)
 	local stats = player:FindFirstChild("Stats")
 	local value = stats and stats:FindFirstChild("StepMultiplier")
@@ -732,6 +787,8 @@ local function getEquippedStepOrder(player)
 	local value = stats and stats:FindFirstChild("EquippedStepOrder")
 	return (value and value.Value) or 1
 end
+
+
 
 local function setEquippedStepMultiplier(player, multiplier, order, suppressNotification)
 	local stats = player:FindFirstChild("Stats")
@@ -755,29 +812,22 @@ local function setEquippedStepMultiplier(player, multiplier, order, suppressNoti
 	end
 end
 
-local function autoEquipHighestStepMultiplier(player, suppressNotification)
+local function syncStepMultiplierToCurrentWins(player, suppressNotification)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
 	if not wins then return nil end
 
 	local best = getHighestUnlockedStepMultiplier(wins.Value)
 	if not best then
-		setEquippedStepMultiplier(player, 1, 1, suppressNotification)
-		return { winsRequired = 0, multiplier = 1, order = 1 }
-	end
-
-	local currentMultiplier = getStepMultiplierValue(player)
-	local currentOrder = getEquippedStepOrder(player)
-	if currentMultiplier >= best.multiplier and currentOrder >= 1 then
-		return {
-			winsRequired = best.winsRequired,
-			multiplier = currentMultiplier,
-			order = currentOrder,
-		}
+		best = { winsRequired = 0, multiplier = 1, order = 1 }
 	end
 
 	setEquippedStepMultiplier(player, best.multiplier, best.order, suppressNotification)
 	return best
+end
+
+local function autoEquipHighestStepMultiplier(player, suppressNotification)
+	return syncStepMultiplierToCurrentWins(player, suppressNotification)
 end
 
 local function getPlayerMultipliers(player)
@@ -1615,12 +1665,40 @@ promptAuraPurchaseRemote.OnServerEvent:Connect(function(player, auraKey)
 end)
 
 equipAuraRemote.OnServerEvent:Connect(function(player, auraKey)
-	if typeof(auraKey) ~= "string" then return end
+	if typeof(auraKey) ~= "string" then
+		return
+	end
+
 	if auraKey == "None" or auraKey == "" then
 		equipAura(player, "None")
 		return
 	end
-	equipAura(player, auraKey)
+
+	local aura = AURAS[auraKey]
+	if not aura then
+		return
+	end
+
+	if ownsAura(player, auraKey) then
+		equipAura(player, auraKey)
+		return
+	end
+
+	local bought, reason = buyAuraWithWins(player, auraKey)
+	if bought and reason == "Purchased" then
+		-- no auto-equip after buying
+		return
+	end
+
+	if reason == "NotEnoughWins" then
+		notifyPlayer(
+			player,
+			"Not Enough Wins",
+			"You need " .. tostring(aura.winsCost) .. " wins for " .. aura.name .. ".",
+			"Warning",
+			3.5
+		)
+	end
 end)
 
 MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
@@ -1681,8 +1759,8 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
 
 	local aura = AURA_BY_GAMEPASS_ID[gamePassId]
 	if aura then
-		refreshOwnedAuraGamepasses(player)
 		if wasPurchased then
+			grantAuraPurchase(player, aura.key)
 			notifyPlayer(player, "THANK YOU!", "Thanks for supporting the game. " .. aura.name .. " unlocked!", "Info", 4.5, nil, {
 				rainbowTitle = true,
 				confetti = true,
@@ -1691,7 +1769,10 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
 				iconKey = "Purchase",
 				scaleMultiplier = 1.8,
 			})
+		else
+			refreshOwnedAuraGamepasses(player)
 		end
+		return
 	end
 end)
 
