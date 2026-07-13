@@ -1,0 +1,37 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local stats = player:WaitForChild("Stats")
+
+local gui = playerGui:WaitForChild("LevelExpGUI")
+local mainFrame = gui:WaitForChild("MainFrame")
+local applySpeedButton = mainFrame:WaitForChild("ApplySpeedButton")
+local maxSpeedArrow = applySpeedButton:WaitForChild("MaxSpeedArrow")
+
+local selectedRealSpeed = stats:WaitForChild("SelectedRealSpeed")
+local maxRealSpeed = stats:WaitForChild("MaxRealSpeed")
+local useCustomSpeed = stats:WaitForChild("UseCustomSpeed")
+
+maxSpeedArrow.Visible = false
+maxSpeedArrow.AnchorPoint = Vector2.new(0.5, 0)
+maxSpeedArrow.Position = UDim2.fromScale(0.5, 1.15)
+maxSpeedArrow.Size = UDim2.fromScale(0.38, 0.8)
+
+local function refresh()
+	local needsReminder = useCustomSpeed.Value and selectedRealSpeed.Value + 0.05 < maxRealSpeed.Value
+	maxSpeedArrow.Visible = needsReminder
+end
+
+RunService.RenderStepped:Connect(function()
+	if maxSpeedArrow.Visible then
+		maxSpeedArrow.Position = UDim2.fromScale(0.5, 1.15 + math.sin(tick() * 4) * 0.03)
+	end
+end)
+
+selectedRealSpeed.Changed:Connect(refresh)
+maxRealSpeed.Changed:Connect(refresh)
+useCustomSpeed.Changed:Connect(refresh)
+refresh()
