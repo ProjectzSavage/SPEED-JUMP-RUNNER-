@@ -3,12 +3,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local AvatarEditorService = game:GetService("AvatarEditorService")
 local GroupService = game:GetService("GroupService")
-
+local CollectionService = game:GetService("CollectionService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local stats = player:WaitForChild("Stats")
 
-local GROUP_ID = 0 -- replace with your group id
+local GROUP_ID = 16206015 -- replace with your group id
 
 local promptGroupJoinRemote = ReplicatedStorage:WaitForChild("PromptGroupJoin")
 local claimFavoriteRewardRemote = ReplicatedStorage:WaitForChild("ClaimFavoriteReward")
@@ -45,7 +45,7 @@ local function updateGuiState()
 		claimGroupButton.Text = "GROUP CLAIMED"
 		claimGroupButton.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
 	else
-		claimGroupButton.Text = "JOIN GROUP"
+		claimGroupButton.Text = "JOIN"
 		claimGroupButton.BackgroundColor3 = Color3.fromRGB(70, 190, 80)
 	end
 
@@ -168,6 +168,28 @@ end)
 favoriteClaimed.Changed:Connect(function()
 	updateGuiState()
 	updateToggleVisibility()
+end)
+
+local function hookFreeRewardPrompt(prompt)
+	if not prompt:IsA("ProximityPrompt") then return end
+	if prompt:GetAttribute("FreeRewardsConnected") then return end
+	prompt:SetAttribute("FreeRewardsConnected", true)
+
+	prompt.Triggered:Connect(function()
+		openFrame()
+	end)
+end
+
+for _, obj in ipairs(workspace:GetDescendants()) do
+	if obj:IsA("ProximityPrompt") and (obj.Name == "FreeRewardsPrompt" or CollectionService:HasTag(obj, "FreeRewardsPrompt")) then
+		hookFreeRewardPrompt(obj)
+	end
+end
+
+workspace.DescendantAdded:Connect(function(obj)
+	if obj:IsA("ProximityPrompt") and (obj.Name == "FreeRewardsPrompt" or CollectionService:HasTag(obj, "FreeRewardsPrompt")) then
+		hookFreeRewardPrompt(obj)
+	end
 end)
 
 updateGuiState()
