@@ -2267,10 +2267,10 @@ end)
 
 task.spawn(function()
 	local thresholds = {
-		60,   -- 1 minute
-		600,  -- 10 minutes
-		1800, -- 30 minutes
 		3600, -- 1 hour
+		1800, -- 30 minutes
+		600,  -- 10 minutes
+		60,   -- 1 minute
 	}
 
 	local function thresholdLabel(seconds)
@@ -2312,27 +2312,41 @@ task.spawn(function()
 					else
 						local remaining = endValue - now
 
-						for i = #thresholds, 1, -1 do
-							local threshold = thresholds[i]
-							local key = potion.key .. "_" .. tostring(threshold)
+						-- choose ONLY the closest threshold band
+						local chosenThreshold = nil
+						if remaining <= 60 then
+							chosenThreshold = 60
+						elseif remaining <= 600 then
+							chosenThreshold = 600
+						elseif remaining <= 1800 then
+							chosenThreshold = 1800
+						elseif remaining <= 3600 then
+							chosenThreshold = 3600
+						end
 
-							if remaining <= threshold and warningState[key] ~= endValue then
-								-- clear larger threshold keys so only one message fires
-								for _, otherThreshold in ipairs(thresholds) do
-									if otherThreshold ~= threshold then
-										warningState[potion.key .. "_" .. tostring(otherThreshold)] = nil
-									end
+						if chosenThreshold then
+							local key = potion.key .. "_" .. tostring(chosenThreshold)
+							if warningState[key] ~= endValue then
+								-- clear other threshold memories for this potion timer
+								for _, threshold in ipairs(thresholds) do
+									warningState[potion.key .. "_" .. tostring(threshold)] = nil
 								end
 
 								warningState[key] = endValue
 
 								local potionName = (potion.name and potion.name.Value ~= "" and potion.name.Value) or (potion.key .. " Potion")
 
-								notifyPlayer(player, "Potion Ending Soon", potionName .. " has " .. thresholdLabel(threshold) .. " left.", "Warning", 4, nil, {
-									icon = potion.icon and potion.icon.Value or nil,
-								})
-
-								break
+								notifyPlayer(
+									player,
+									"Potion Ending Soon",
+									potionName .. " has " .. thresholdLabel(chosenThreshold) .. " left.",
+									"Warning",
+									4,
+									nil,
+									{
+										icon = potion.icon and potion.icon.Value or nil,
+									}
+								)
 							end
 						end
 					end
