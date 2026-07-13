@@ -169,7 +169,7 @@ local function autoGrantGroupReward(player)
 	groupClaimed.Value = true
 	grantLevelFiveStarter(player)
 	grantWinsPotion(player, 2, GROUP_REWARD_DURATION, "2x Wins Reward", "")
-	notifyPlayer(player, "Free Reward Claimed", "Starter reward claimed! 2x Wins for 3 minutes.", "Success", 4)
+	notifyPlayer(player, "Free Reward Claimed", "Starter reward claimed! 2x Wins for 1 minute.", "Success", 4)
 end
 
 claimFavoriteRewardRemote.OnServerEvent:Connect(function(player)
@@ -179,7 +179,7 @@ claimFavoriteRewardRemote.OnServerEvent:Connect(function(player)
 
 	favoriteClaimed.Value = true
 	grantExpPotion(player, 2, FAVORITE_REWARD_DURATION, "2x EXP Reward", "")
-	notifyPlayer(player, "Favorite Reward Claimed", "2x EXP for 3 minutes!", "Success", 4)
+	notifyPlayer(player, "Favorite Reward Claimed", "2x EXP for 1 minute!", "Success", 4)
 end)
 
 completeTutorialRewardRemote.OnServerEvent:Connect(function(player)
@@ -187,7 +187,7 @@ completeTutorialRewardRemote.OnServerEvent:Connect(function(player)
 	if tutorialCompleted.Value then return end
 	tutorialCompleted.Value = true
 	grantExpPotion(player, 2, TUTORIAL_REWARD_DURATION, "2x EXP Tutorial Reward", "")
-	notifyPlayer(player, "Tutorial Complete", "You received 2x EXP for 3 minutes!", "Success", 4, {
+	notifyPlayer(player, "Tutorial Complete", "You received 2x EXP for 1 minute!", "Success", 4, {
 		iconKey = "Combo",
 		confetti = true,
 		confettiCount = 80,
