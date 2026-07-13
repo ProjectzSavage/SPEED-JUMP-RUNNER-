@@ -35,7 +35,7 @@ local KEYBOARD_SOUND_LIBRARY = {
 	},
 	Soft = {
 		name = "Soft",
-		soundId = "rbxassetid://129156310772034",
+		soundId = "rbxassetid://132272653401114",
 		premium = false,
 	},
 
