@@ -1,0 +1,113 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SocialService = game:GetService("SocialService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local Icon = require(ReplicatedStorage:WaitForChild("Icon"))
+
+local analyticsRemote = ReplicatedStorage:FindFirstChild("AnalyticsFunnelStep")
+local showNotificationRemote = ReplicatedStorage:FindFirstChild("ShowNotification")
+
+local FEEDBACK_IMAGE = "rbxassetid://108364968985393"
+local INVITE_IMAGE = "rbxassetid://109925522355398"
+
+local feedbackBusy = false
+local inviteBusy = false
+local lastFeedbackAttempt = 0
+local FEEDBACK_COOLDOWN = 60
+
+local function notify(title, message, kind)
+	if showNotificationRemote then
+		showNotificationRemote:FireClient(player, {
+			title = title,
+			message = message,
+			kind = kind or "Info",
+			duration = 3.5,
+			iconKey = "Feedback",
+		})
+	else
+		warn(title .. ": " .. message)
+	end
+end
+
+local function logFunnel(data)
+	if analyticsRemote then
+		analyticsRemote:FireServer(data)
+	end
+end
+
+local function tryFeedbackPrompt()
+	if feedbackBusy then
+		return
+	end
+
+	if tick() - lastFeedbackAttempt < FEEDBACK_COOLDOWN then
+		notify("Please Wait", "Try feedback again in a moment.", "Warning")
+		return
+	end
+
+	feedbackBusy = true
+	lastFeedbackAttempt = tick()
+
+	-- Log click only
+	logFunnel({
+		funnelName = "FeedbackFlow",
+		step = 1,
+		stepName = "Clicked Feedback",
+		resetSession = true,
+	})
+
+	local success, result = pcall(function()
+		-- This yields and may simply show unavailable if owner / already used today / not eligible
+		return SocialService:PromptFeedbackSubmissionAsync()
+	end)
+
+	if not success then
+		notify("Feedback Unavailable", "Roblox feedback is unavailable right now.", "Warning")
+	end
+
+	feedbackBusy = false
+end
+
+local function tryInvitePrompt()
+	if inviteBusy then
+		return
+	end
+
+	inviteBusy = true
+
+	logFunnel({
+		funnelName = "SocialFlow",
+		step = 1,
+		stepName = "Clicked Invite Friends",
+		resetSession = true,
+	})
+
+	local success, result = pcall(function()
+		return SocialService:PromptGameInvite(player)
+	end)
+
+	if not success then
+		notify("Invite Unavailable", "Could not open invites right now.", "Warning")
+	end
+
+	inviteBusy = false
+end
+
+local feedbackIcon = Icon.new()
+	:setImage(FEEDBACK_IMAGE)
+	:setOrder(998)
+
+feedbackIcon:bindEvent("selected", function(icon)
+	icon:deselect()
+	tryFeedbackPrompt()
+end)
+
+local inviteIcon = Icon.new()
+	:setImage(INVITE_IMAGE)
+	:setOrder(997)
+
+inviteIcon:bindEvent("selected", function(icon)
+	icon:deselect()
+	tryInvitePrompt()
+end)
