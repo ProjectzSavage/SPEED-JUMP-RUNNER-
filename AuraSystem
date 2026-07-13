@@ -22,69 +22,63 @@ local AURAS = {
 	Water = {
 		key = "Water",
 		name = "Water Aura",
-		boost = 2.0,
-		winsRequired = 0,
-		productId = 0,
-		robuxPrice = 489,
-		previewImage = "",
+		boost = 1.5,
+		winsCost = 150,
+		gamePassId = 1907005474,
+		robuxPrice = 29,
 		templateName = "WaterAura",
 	},
 	Fire = {
 		key = "Fire",
 		name = "Fire Aura",
-		boost = 2.5,
-		winsRequired = 0,
-		productId = 0,
-		robuxPrice = 699,
-		previewImage = "",
+		boost = 1.75,
+		winsCost = 250,
+		gamePassId = 1907047473,
+		robuxPrice = 49,
 		templateName = "FireAura",
 	},
 	Electric = {
 		key = "Electric",
 		name = "Electric Aura",
-		boost = 3.0,
-		winsRequired = 0,
-		productId = 0,
-		robuxPrice = 899,
-		previewImage = "",
+		boost = 2.0,
+		winsCost = 600,
+		gamePassId = 1907857406,
+		robuxPrice = 99,
 		templateName = "ElectricAura",
 	},
 	BlackFlash = {
 		key = "BlackFlash",
-		name = "Black Flash Aura",
-		boost = 4.0,
-		winsRequired = math.huge,
-		productId = 1882596118,
-		robuxPrice = 799,
-		previewImage = "",
+		name = "Black Flash",
+		boost = 3.5,
+		winsCost = math.huge,
+		gamePassId = 1882596118,
+		robuxPrice = 499,
 		templateName = "BlackFlashAura",
 	},
 	WallyWest = {
 		key = "WallyWest",
-		name = "Wally West Aura",
+		name = "Wally West",
 		boost = 5.0,
-		winsRequired = math.huge,
-		productId = 1884504099,
-		robuxPrice = 999,
-		previewImage = "",
+		winsCost = math.huge,
+		gamePassId = 1884504099,
+		robuxPrice = 899,
 		templateName = "WallyWestAura",
 	},
 	Avatar = {
 		key = "Avatar",
-		name = "Avatar Aura",
-		boost = 6.0,
-		winsRequired = math.huge,
-		productId = 1882434177,
-		robuxPrice = 1599,
-		previewImage = "",
+		name = "Avatar",
+		boost = 6.5,
+		winsCost = math.huge,
+		gamePassId = 1882434177,
+		robuxPrice = 1299,
 		templateName = "AvatarAura",
 	},
 }
 
-local AURA_BY_PRODUCT_ID = {}
+local AURA_BY_GAMEPASS_ID = {}
 for _, aura in pairs(AURAS) do
-	if aura.productId and aura.productId > 0 then
-		AURA_BY_PRODUCT_ID[aura.productId] = aura
+	if aura.gamePassId and aura.gamePassId > 0 then
+		AURA_BY_GAMEPASS_ID[aura.gamePassId] = aura
 	end
 end
 
@@ -103,7 +97,25 @@ local function notifyPlayer(player, title, message, kind, duration, extra)
 	showNotificationRemote:FireClient(player, payload)
 end
 
+local function ensureValue(parent, className, name, defaultValue)
+	local obj = parent:FindFirstChild(name)
+	if not obj then
+		obj = Instance.new(className)
+		obj.Name = name
+		obj.Value = defaultValue
+		obj.Parent = parent
+	end
+	return obj
+end
+
 local function ensureAuraStats(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+	end
+
 	local stats = player:FindFirstChild("Stats")
 	if not stats then
 		stats = Instance.new("Folder")
@@ -111,21 +123,8 @@ local function ensureAuraStats(player)
 		stats.Parent = player
 	end
 
-	local currentAura = stats:FindFirstChild("CurrentAura")
-	if not currentAura then
-		currentAura = Instance.new("StringValue")
-		currentAura.Name = "CurrentAura"
-		currentAura.Value = "None"
-		currentAura.Parent = stats
-	end
-
-	local auraMultiplier = stats:FindFirstChild("AuraMultiplier")
-	if not auraMultiplier then
-		auraMultiplier = Instance.new("NumberValue")
-		auraMultiplier.Name = "AuraMultiplier"
-		auraMultiplier.Value = 1
-		auraMultiplier.Parent = stats
-	end
+	local currentAura = ensureValue(stats, "StringValue", "CurrentAura", "None")
+	local auraMultiplier = ensureValue(stats, "NumberValue", "AuraMultiplier", 1)
 
 	local ownedAuras = stats:FindFirstChild("OwnedAuras")
 	if not ownedAuras then
@@ -135,22 +134,34 @@ local function ensureAuraStats(player)
 	end
 
 	for auraKey in pairs(AURAS) do
-		local owned = ownedAuras:FindFirstChild(auraKey)
-		if not owned then
-			owned = Instance.new("BoolValue")
-			owned.Name = auraKey
-			owned.Value = false
-			owned.Parent = ownedAuras
-		end
+		ensureValue(ownedAuras, "BoolValue", auraKey, false)
 	end
 
-	return stats, currentAura, auraMultiplier, ownedAuras
+	return leaderstats, stats, currentAura, auraMultiplier, ownedAuras
+end
+
+local function refreshOwnedAuraGamepasses(player)
+	local _, _, _, _, ownedAuras = ensureAuraStats(player)
+
+	for auraKey, aura in pairs(AURAS) do
+		local owned = ownedAuras:FindFirstChild(auraKey)
+		if owned and aura.gamePassId and aura.gamePassId > 0 then
+			local ok, hasPass = pcall(function()
+				return MarketplaceService:UserOwnsGamePassAsync(player.UserId, aura.gamePassId)
+			end)
+			if ok and hasPass then
+				owned.Value = true
+			end
+		end
+	end
 end
 
 local function clearAura(character)
 	for _, obj in ipairs(character:GetDescendants()) do
-		if (obj:IsA("ParticleEmitter") or obj:IsA("Attachment") or obj:IsA("Trail") or obj:IsA("Beam")) and obj:GetAttribute("EquippedAuraObject") == true then
-			obj:Destroy()
+		if obj:GetAttribute("EquippedAuraObject") == true then
+			if obj:IsA("ParticleEmitter") or obj:IsA("Attachment") or obj:IsA("Trail") or obj:IsA("Beam") then
+				obj:Destroy()
+			end
 		end
 	end
 end
@@ -194,20 +205,48 @@ local function ownsAura(player, auraKey)
 	local aura = AURAS[auraKey]
 	if not aura then return false end
 
-	local stats = player:FindFirstChild("Stats")
-	local ownedAuras = stats and stats:FindFirstChild("OwnedAuras")
-	local ownedValue = ownedAuras and ownedAuras:FindFirstChild(auraKey)
-	local purchased = ownedValue and ownedValue.Value == true
+	local leaderstats, stats, currentAura, auraMultiplier, ownedAuras = ensureAuraStats(player)
+	local ownedValue = ownedAuras:FindFirstChild(auraKey)
+	return ownedValue and ownedValue.Value == true
+end
+
+local function tryUnlockAuraWithWins(player, auraKey)
+	local aura = AURAS[auraKey]
+	if not aura then return false end
+	if aura.winsCost == math.huge then
+		return false
+	end
 
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local wins = leaderstats and leaderstats:FindFirstChild("Wins")
-	local unlockedByWins = wins and wins.Value >= aura.winsRequired
+	if not wins then return false end
 
-	return purchased or unlockedByWins
+	local _, _, _, _, ownedAuras = ensureAuraStats(player)
+	local ownedValue = ownedAuras:FindFirstChild(auraKey)
+	if ownedValue and ownedValue.Value == true then
+		return true
+	end
+
+	if wins.Value < aura.winsCost then
+		notifyPlayer(player, "Not Enough Wins", "You need " .. tostring(aura.winsCost) .. " Wins.", "Warning", 3.2, {
+			iconKey = "Aura",
+		})
+		return false
+	end
+
+	wins.Value -= aura.winsCost
+	if ownedValue then
+		ownedValue.Value = true
+	end
+
+	notifyPlayer(player, "Aura Unlocked", aura.name .. " unlocked for " .. tostring(aura.winsCost) .. " Wins!", "Success", 3.5, {
+		iconKey = "Aura",
+	})
+	return true
 end
 
 local function equipAura(player, auraKey)
-	local _, currentAura, auraMultiplier = ensureAuraStats(player)
+	local _, _, currentAura, auraMultiplier, ownedAuras = ensureAuraStats(player)
 
 	if auraKey == "None" or auraKey == "" then
 		currentAura.Value = "None"
@@ -215,59 +254,107 @@ local function equipAura(player, auraKey)
 		if player.Character then
 			clearAura(player.Character)
 		end
-		notifyPlayer(player, "Aura Removed", "Aura unequipped.", "Info", 3)
+		notifyPlayer(player, "Aura Removed", "Aura unequipped.", "Info", 3, {
+			iconKey = "Aura",
+		})
 		return true
 	end
 
 	local aura = AURAS[auraKey]
 	if not aura then return false end
-	if not ownsAura(player, auraKey) then return false end
+
+	local ownedValue = ownedAuras:FindFirstChild(auraKey)
+	local alreadyOwned = ownedValue and ownedValue.Value == true
+
+	if not alreadyOwned then
+		local unlockedByWins = tryUnlockAuraWithWins(player, auraKey)
+		if not unlockedByWins then
+			return false
+		end
+	end
 
 	currentAura.Value = auraKey
 	auraMultiplier.Value = aura.boost
 	applyAuraToCharacter(player, auraKey)
-	notifyPlayer(player, "Aura Equipped", aura.name .. " equipped.", "Success", 3.2)
+
+	notifyPlayer(player, "Aura Equipped", aura.name .. " equipped.", "Success", 3.2, {
+		iconKey = "Aura",
+	})
 	return true
 end
 
 local function grantAuraPurchase(player, auraKey)
 	local aura = AURAS[auraKey]
 	if not aura then return false end
-	local _, _, _, ownedAuras = ensureAuraStats(player)
+
+	local _, _, _, _, ownedAuras = ensureAuraStats(player)
 	local owned = ownedAuras:FindFirstChild(auraKey)
 	if owned then
 		owned.Value = true
 	end
-	notifyPlayer(player, "Aura Unlocked", aura.name .. " unlocked!", "Success", 3.5)
+
+	notifyPlayer(player, "THANK YOU!", aura.name .. " unlocked!", "Info", 4.5, {
+		rainbowTitle = true,
+		confetti = true,
+		confettiCount = 120,
+		soundId = "rbxassetid://1843520822",
+		iconKey = "Purchase",
+		scaleMultiplier = 1.8,
+	})
 	return true
 end
 
 promptAuraPurchaseRemote.OnServerEvent:Connect(function(player, auraKey)
 	if typeof(auraKey) ~= "string" then return end
 	local aura = AURAS[auraKey]
-	if not aura or not aura.productId or aura.productId <= 0 then
-		warn("[AuraSystem] Missing productId for aura", auraKey)
+	if not aura or not aura.gamePassId or aura.gamePassId <= 0 then
+		warn("[AuraSystem] Missing gamePassId for aura", auraKey)
 		return
 	end
-	MarketplaceService:PromptProductPurchase(player, aura.productId)
+
+	-- If already owned, silently refresh
+	local ok, hasPass = pcall(function()
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, aura.gamePassId)
+	end)
+	if ok and hasPass then
+		refreshOwnedAuraGamepasses(player)
+		return
+	end
+
+	MarketplaceService:PromptGamePassPurchase(player, aura.gamePassId)
 end)
 
 equipAuraRemote.OnServerEvent:Connect(function(player, auraKey)
 	if typeof(auraKey) ~= "string" then return end
-	local _, currentAura = ensureAuraStats(player)
-	if auraKey == currentAura.Value then
+
+	if auraKey == "None" or auraKey == "" then
 		equipAura(player, "None")
 		return
 	end
+
 	equipAura(player, auraKey)
+end)
+
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
+	if not player then return end
+
+	local aura = AURA_BY_GAMEPASS_ID[gamePassId]
+	if aura then
+		refreshOwnedAuraGamepasses(player)
+		if wasPurchased then
+			grantAuraPurchase(player, aura.key)
+		end
+	end
 end)
 
 Players.PlayerAdded:Connect(function(player)
 	ensureAuraStats(player)
+	refreshOwnedAuraGamepasses(player)
+
 	player.CharacterAdded:Connect(function()
 		task.wait(0.35)
-		local _, currentAura = ensureAuraStats(player)
-		if currentAura.Value ~= "None" and currentAura.Value ~= "" then
+		local _, _, currentAura = ensureAuraStats(player)
+		if currentAura.Value ~= "None" and currentAura.Value ~= "" and ownsAura(player, currentAura.Value) then
 			applyAuraToCharacter(player, currentAura.Value)
 		end
 	end)
@@ -276,17 +363,12 @@ end)
 for _, player in ipairs(Players:GetPlayers()) do
 	task.spawn(function()
 		ensureAuraStats(player)
+		refreshOwnedAuraGamepasses(player)
 		if player.Character then
-			local _, currentAura = ensureAuraStats(player)
-			if currentAura.Value ~= "None" and currentAura.Value ~= "" then
+			local _, _, currentAura = ensureAuraStats(player)
+			if currentAura.Value ~= "None" and currentAura.Value ~= "" and ownsAura(player, currentAura.Value) then
 				applyAuraToCharacter(player, currentAura.Value)
 			end
 		end
 	end)
 end
-
-return {
-	AURAS = AURAS,
-	AURA_BY_PRODUCT_ID = AURA_BY_PRODUCT_ID,
-	grantAuraPurchase = grantAuraPurchase,
-}
