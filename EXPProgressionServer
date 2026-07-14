@@ -615,7 +615,8 @@ local function buyAuraWithWins(player, auraKey)
 end
 
 local function formatExpRequired(level)
-	return math.floor(100 + (level ^ 1.45) * 35)
+	level = math.max(0, level)
+	return math.floor(160 + (level ^ 1.60) * 50)
 end
 
 local COMBO_RESET_TIME = 1.4
