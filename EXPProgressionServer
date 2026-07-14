@@ -251,9 +251,9 @@ local trampolinePassOwnership = {}
 local trampolinePromptCooldown = {}
 
 local REVIVE_PRODUCTS = {
-	Early = { productId = 3607231878, price = 19 },
-	Mid = { productId = 3607231878, price = 39 },
-	Late = { productId = 3607231878, price = 69 },
+	Early = { productId = 3609724864, price = 3 },
+	Mid = { productId = 3609725724, price = 19 },
+	Late = { productId = 3609733492, price = 39 },
 }
 
 local overlapParams = OverlapParams.new()
