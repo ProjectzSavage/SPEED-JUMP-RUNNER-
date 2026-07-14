@@ -1,0 +1,60 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local remote = ReplicatedStorage:FindFirstChild("SystemChatTipEvent")
+if not remote then
+	remote = Instance.new("RemoteEvent")
+	remote.Name = "SystemChatTipEvent"
+	remote.Parent = ReplicatedStorage
+end
+
+local TIP_INTERVAL = 75
+
+local MESSAGES = {
+	{ prefix = "TIP", prefixColor = Color3.fromRGB(255, 215, 80), messageColor = Color3.fromRGB(255, 255, 255), text = "Don't forget to Like AND Favorite the Game!" },
+	{ prefix = "TIP", prefixColor = Color3.fromRGB(80, 200, 255), messageColor = Color3.fromRGB(230, 255, 255), text = "Use Auto Jump and trampolines to level up faster." },
+	{ prefix = "HINT", prefixColor = Color3.fromRGB(120, 255, 120), messageColor = Color3.fromRGB(245, 255, 245), text = "Rebirthing gives stronger progression boosts, so don't ignore it." },
+	{ prefix = "INFO", prefixColor = Color3.fromRGB(255, 170, 80), messageColor = Color3.fromRGB(255, 245, 235), text = "Join the group and claim your free rewards if you haven't already." },
+	{ prefix = "TIP", prefixColor = Color3.fromRGB(255, 120, 180), messageColor = Color3.fromRGB(255, 240, 248), text = "Titles, auras, potions, and rebirths all stack your progress." },
+	{ prefix = "NEWS", prefixColor = Color3.fromRGB(180, 120, 255), messageColor = Color3.fromRGB(245, 240, 255), text = "Check the shops often for boosts, wins, and unlocks." },
+	{ prefix = "BONUS", prefixColor = Color3.fromRGB(255, 90, 90), messageColor = Color3.fromRGB(255, 240, 240), text = "Faster progress means faster rebirths, so keep moving nonstop." },
+}
+
+local nextIndex = 0
+
+local function getNextMessage()
+	nextIndex += 1
+	if nextIndex > #MESSAGES then
+		nextIndex = 1
+	end
+	return MESSAGES[nextIndex]
+end
+
+local function fireToPlayer(player, message)
+	print(string.format("[SystemChatTips][Server] Sending to %s -> [%s] %s", player.Name, tostring(message.prefix), tostring(message.text)))
+	remote:FireClient(player, message)
+end
+
+Players.PlayerAdded:Connect(function(player)
+	print("[SystemChatTips][Server] PlayerAdded:", player.Name)
+	task.delay(10, function()
+		if player.Parent then
+			fireToPlayer(player, getNextMessage())
+		end
+	end)
+end)
+
+task.spawn(function()
+	print("[SystemChatTips][Server] Loop started. Interval:", TIP_INTERVAL)
+	while true do
+		task.wait(TIP_INTERVAL)
+		local players = Players:GetPlayers()
+		print("[SystemChatTips][Server] Tick. Players online:", #players)
+		if #players > 0 then
+			local message = getNextMessage()
+			for _, player in ipairs(players) do
+				fireToPlayer(player, message)
+			end
+		end
+	end
+end)
