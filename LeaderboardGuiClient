@@ -1,0 +1,210 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local localPlayer = Players.LocalPlayer
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+local leaderboardRemote = ReplicatedStorage:WaitForChild("LeaderboardData")
+
+local BOARDS = {
+	"WinsLeaderboard",
+	"SpeedLeaderboard",
+}
+
+local currentData = {
+	Wins = {},
+	Speed = {},
+}
+
+local avatarCache = {}
+
+local function formatNumber(num)
+	num = tonumber(num) or 0
+	if num >= 1000000000 then
+		return string.format("%.1fB", num / 1000000000)
+	elseif num >= 1000000 then
+		return string.format("%.1fM", num / 1000000)
+	elseif num >= 1000 then
+		return string.format("%.1fK", num / 1000)
+	end
+	return tostring(math.floor(num))
+end
+
+local function getBoardGui(guiName)
+	local gui = playerGui:FindFirstChild(guiName)
+	if not gui then
+		warn("[LeaderboardGuiClient] Missing gui:", guiName)
+		return nil
+	end
+	return gui
+end
+
+local function getBoardStat(gui)
+	if not gui then
+		return nil
+	end
+	return gui:GetAttribute("LeaderboardStats") or gui:GetAttribute("LeaderboardStat")
+end
+
+local function getUserIdFromEntry(entry)
+	if typeof(entry) ~= "table" then
+		return nil
+	end
+	local raw = entry[3] or entry.userId or entry.UserId or entry.userid or entry.id
+	local userId = tonumber(raw)
+	if userId and userId > 0 then
+		return userId
+	end
+	return nil
+end
+
+local function getNameFromEntry(entry)
+	if typeof(entry) ~= "table" then
+		return "Unknown"
+	end
+	return tostring(entry[1] or entry.name or entry.Name or "Unknown")
+end
+
+local function getValueFromEntry(entry)
+	if typeof(entry) ~= "table" then
+		return 0
+	end
+	return tonumber(entry[2] or entry.value or entry.Value or 0) or 0
+end
+
+local function getAvatarForUserId(userId)
+	if not userId then
+		return ""
+	end
+	if avatarCache[userId] then
+		return avatarCache[userId]
+	end
+
+	local ok, content = pcall(function()
+		return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+	end)
+	if ok and content then
+		avatarCache[userId] = content
+		return content
+	end
+	return ""
+end
+
+local function clearRows(listScroll, rowTemplate)
+	for _, child in ipairs(listScroll:GetChildren()) do
+		if child:IsA("Frame") and child ~= rowTemplate then
+			child:Destroy()
+		end
+	end
+end
+
+local function updateCanvas(listScroll)
+	local listLayout = listScroll:FindFirstChildWhichIsA("UIListLayout")
+	if listLayout and listScroll:IsA("ScrollingFrame") then
+		RunService.Heartbeat:Wait()
+		listScroll.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 12)
+	end
+end
+
+local function updateBoard(guiName)
+	local gui = getBoardGui(guiName)
+	if not gui then
+		return
+	end
+
+	local statName = getBoardStat(gui)
+	if typeof(statName) ~= "string" or statName == "" then
+		warn("[LeaderboardGuiClient] Missing LeaderboardStats attribute on", guiName)
+		return
+	end
+
+	local entries = currentData[statName]
+	if typeof(entries) ~= "table" then
+		warn("[LeaderboardGuiClient] No entries table for stat", statName, "on", guiName)
+		entries = {}
+	end
+
+	local root = gui:FindFirstChild("Root")
+	if not root then
+		warn("[LeaderboardGuiClient] Missing Root in", guiName)
+		return
+	end
+
+	local listScroll = root:FindFirstChild("ListScroll")
+	if not listScroll or not listScroll:IsA("ScrollingFrame") then
+		warn("[LeaderboardGuiClient] Missing ListScroll in", guiName)
+		return
+	end
+
+	local rowTemplate = listScroll:FindFirstChild("RowTemplate")
+	if not rowTemplate or not rowTemplate:IsA("Frame") then
+		warn("[LeaderboardGuiClient] Missing RowTemplate in", guiName)
+		return
+	end
+
+	rowTemplate.Visible = false
+	clearRows(listScroll, rowTemplate)
+
+	print(string.format("[LeaderboardGuiClient] Rendering %s with stat %s and %d entries", guiName, statName, #entries))
+
+	for rank, entry in ipairs(entries) do
+		local row = rowTemplate:Clone()
+		row.Name = "Row_" .. tostring(rank)
+		row.Visible = true
+		row.LayoutOrder = rank
+		row.Parent = listScroll
+
+		local avatar = row:FindFirstChild("Avatar")
+		local nameLabel = row:FindFirstChild("Name")
+		local rankLabel = row:FindFirstChild("Rank")
+		local valueLabel = row:FindFirstChild("Value")
+
+		local userId = getUserIdFromEntry(entry)
+		local playerName = getNameFromEntry(entry)
+		local value = getValueFromEntry(entry)
+
+		if avatar and avatar:IsA("ImageLabel") then
+			avatar.Image = getAvatarForUserId(userId)
+		end
+		if nameLabel and nameLabel:IsA("TextLabel") then
+			nameLabel.Text = playerName
+		end
+		if rankLabel and rankLabel:IsA("TextLabel") then
+			rankLabel.Text = "#" .. tostring(rank)
+		end
+		if valueLabel and valueLabel:IsA("TextLabel") then
+			valueLabel.Text = formatNumber(value)
+		end
+	end
+
+	updateCanvas(listScroll)
+end
+
+local function refreshAllBoards()
+	for _, guiName in ipairs(BOARDS) do
+		updateBoard(guiName)
+	end
+end
+
+leaderboardRemote.OnClientEvent:Connect(function(payload)
+	print("[LeaderboardGuiClient] LeaderboardData received. payload type:", typeof(payload))
+	if typeof(payload) ~= "table" then
+		warn("[LeaderboardGuiClient] Invalid payload")
+		return
+	end
+
+	currentData.Speed = typeof(payload.Speed) == "table" and payload.Speed or {}
+	currentData.Wins = typeof(payload.Wins) == "table" and payload.Wins or {}
+
+	print(string.format("[LeaderboardGuiClient] Payload counts -> Speed=%d Wins=%d", #currentData.Speed, #currentData.Wins))
+	refreshAllBoards()
+end)
+
+for _, guiName in ipairs(BOARDS) do
+	local gui = playerGui:WaitForChild(guiName, 10)
+	if gui then
+		print("[LeaderboardGuiClient] Found gui:", guiName, "LeaderboardStats=", tostring(getBoardStat(gui)))
+	end
+end
+
+refreshAllBoards()
