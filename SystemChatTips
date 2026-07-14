@@ -1,0 +1,71 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+local TextChatService = game:GetService("TextChatService")
+local Players = game:GetService("Players")
+
+local localPlayer = Players.LocalPlayer
+local remote = ReplicatedStorage:WaitForChild("SystemChatTipEvent")
+
+local function colorToHex(color)
+	return string.format("#%02X%02X%02X", math.floor(color.R * 255), math.floor(color.G * 255), math.floor(color.B * 255))
+end
+
+local function displayLegacy(prefix, prefixColor, text, messageColor)
+	local ok, err = pcall(function()
+		StarterGui:SetCore("ChatMakeSystemMessage", {
+			Text = string.format("[%s] %s", prefix, text),
+			Color = messageColor,
+			Font = Enum.Font.GothamBold,
+			TextSize = 18,
+		})
+	end)
+end
+
+local function tryGetGeneralChannel()
+	local textChannels = TextChatService:FindFirstChild("TextChannels")
+	if not textChannels then
+		return nil
+	end
+
+	local general = textChannels:FindFirstChild("RBXGeneral")
+	if not general then
+	end
+	return general
+end
+
+local function displayModern(prefix, prefixColor, text, messageColor)
+	local general = tryGetGeneralChannel()
+	if not general then
+		displayLegacy(prefix, prefixColor, text, messageColor)
+		return
+	end
+
+	local rich = string.format(
+		'<font color="%s">[%s]</font> <font color="%s">%s</font>',
+		colorToHex(prefixColor),
+		prefix,
+		colorToHex(messageColor),
+		text
+	)
+
+	local ok, err = pcall(function()
+		general:DisplaySystemMessage(rich)
+	end)
+	if not ok then
+		displayLegacy(prefix, prefixColor, text, messageColor)
+	end
+end
+
+remote.OnClientEvent:Connect(function(payload)
+	if typeof(payload) ~= "table" then
+		warn("[SystemChatTips][Client] Payload was not a table")
+		return
+	end
+
+	local prefix = tostring(payload.prefix or "TIP")
+	local prefixColor = payload.prefixColor or Color3.fromRGB(255, 215, 80)
+	local messageColor = payload.messageColor or Color3.fromRGB(255, 255, 255)
+	local text = tostring(payload.text or "")
+
+	displayModern(prefix, prefixColor, text, messageColor)
+end)
