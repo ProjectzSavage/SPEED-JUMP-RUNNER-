@@ -1,80 +1,126 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+local DataStoreService = game:GetService("DataStoreService")
 
-local leaderboardData = {}
+local SPEED_STORE = DataStoreService:GetOrderedDataStore("SJR_LB_Speed_V2")
+local WINS_STORE = DataStoreService:GetOrderedDataStore("SJR_LB_Wins_V2")
+local TOP_COUNT = 25
+local SAVE_INTERVAL = 60
+local PUSH_INTERVAL = 20
 
-local function formatNumber(num)
-	if num >= 1000000000 then
-		return string.format("%.1fB", num / 1000000000)
-	elseif num >= 1000000 then
-		return string.format("%.1fM", num / 1000000)
-	elseif num >= 1000 then
-		return string.format("%.1fK", num / 1000)
+local leaderboardRemote = ReplicatedStorage:FindFirstChild("LeaderboardData")
+if not leaderboardRemote then
+	leaderboardRemote = Instance.new("RemoteEvent")
+	leaderboardRemote.Name = "LeaderboardData"
+	leaderboardRemote.Parent = ReplicatedStorage
+end
+
+local function saveStat(store, userId, value, label)
+	local ok, err = pcall(function()
+		store:SetAsync(tostring(userId), tonumber(value) or 0)
+	end)
+	if ok then
+		print(string.format("[LeaderboardSystem] Saved %s for %s = %s", label, tostring(userId), tostring(value)))
 	else
-		return tostring(num)
+		warn(string.format("[LeaderboardSystem] Failed saving %s for %s: %s", label, tostring(userId), tostring(err)))
 	end
 end
 
-local function updateLeaderboard()
-	local speedBoard = {}
-	local jumpBoard = {}
-	local rebirthBoard = {}
+local function savePlayer(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		warn("[LeaderboardSystem] No leaderstats for", player.Name)
+		return
+	end
 
-	for _, player in pairs(Players:GetPlayers()) do
-		local leaderstats = player:FindFirstChild("leaderstats")
-		if leaderstats then
-			local speed = leaderstats:FindFirstChild("Speed")
-			local jumps = leaderstats:FindFirstChild("Jumps")
-			local rebirths = leaderstats:FindFirstChild("Rebirths")
+	local speed = leaderstats:FindFirstChild("Speed")
+	local wins = leaderstats:FindFirstChild("Wins")
+	if speed then
+		saveStat(SPEED_STORE, player.UserId, speed.Value, "Speed")
+	end
+	if wins then
+		saveStat(WINS_STORE, player.UserId, wins.Value, "Wins")
+	end
+end
 
-			if speed then
-				table.insert(speedBoard, {player.Name, speed.Value})
-			end
-			if jumps then
-				table.insert(jumpBoard, {player.Name, jumps.Value})
-			end
-			if rebirths then
-				table.insert(rebirthBoard, {player.Name, rebirths.Value})
+local function readTop(store, statName)
+	local ok, pages = pcall(function()
+		return store:GetSortedAsync(false, TOP_COUNT)
+	end)
+	if not ok then
+		warn("[LeaderboardSystem] GetSortedAsync failed for", statName, pages)
+		return {}
+	end
+
+	local page = pages:GetCurrentPage()
+	local result = {}
+	for _, entry in ipairs(page) do
+		local userId = tonumber(entry.key)
+		local name = "Unknown"
+		if userId then
+			local okName, resolvedName = pcall(function()
+				return Players:GetNameFromUserIdAsync(userId)
+			end)
+			if okName and resolvedName then
+				name = resolvedName
 			end
 		end
+		table.insert(result, { name, tonumber(entry.value) or 0, tostring(entry.key) })
 	end
+	print(string.format("[LeaderboardSystem] Loaded %d %s entries", #result, statName))
+	return result
+end
 
-	table.sort(speedBoard, function(a, b) return a[2] > b[2] end)
-	table.sort(jumpBoard, function(a, b) return a[2] > b[2] end)
-	table.sort(rebirthBoard, function(a, b) return a[2] > b[2] end)
-
-	leaderboardData = {
-		Speed = speedBoard,
-		Jumps = jumpBoard,
-		Rebirths = rebirthBoard
+local function pushLeaderboardData()
+	local payload = {
+		Speed = readTop(SPEED_STORE, "Speed"),
+		Wins = readTop(WINS_STORE, "Wins"),
 	}
-
-	local leaderboardRemote = ReplicatedStorage:FindFirstChild("LeaderboardData")
-	if not leaderboardRemote then
-		leaderboardRemote = Instance.new("RemoteEvent")
-		leaderboardRemote.Name = "LeaderboardData"
-		leaderboardRemote.Parent = ReplicatedStorage
-	end
-
-	for _, player in pairs(Players:GetPlayers()) do
-		leaderboardRemote:FireClient(player, leaderboardData)
+	print(string.format("[LeaderboardSystem] Pushing leaderboard payload: Speed=%d Wins=%d", #payload.Speed, #payload.Wins))
+	for _, player in ipairs(Players:GetPlayers()) do
+		leaderboardRemote:FireClient(player, payload)
 	end
 end
 
 Players.PlayerAdded:Connect(function(player)
-	wait(2)
-	updateLeaderboard()
+	print("[LeaderboardSystem] PlayerAdded:", player.Name)
+	task.delay(10, function()
+		if player.Parent then
+			savePlayer(player)
+			pushLeaderboardData()
+		end
+	end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	updateLeaderboard()
+	print("[LeaderboardSystem] PlayerRemoving:", player.Name)
+	savePlayer(player)
+	pushLeaderboardData()
 end)
 
-spawn(function()
-	while wait(10) do
-		updateLeaderboard()
+game:BindToClose(function()
+	for _, player in ipairs(Players:GetPlayers()) do
+		savePlayer(player)
+	end
+	task.wait(2)
+end)
+
+task.spawn(function()
+	print("[LeaderboardSystem] Save loop started")
+	while true do
+		task.wait(SAVE_INTERVAL)
+		for _, player in ipairs(Players:GetPlayers()) do
+			savePlayer(player)
+		end
 	end
 end)
 
-updateLeaderboard()
+task.spawn(function()
+	print("[LeaderboardSystem] Push loop started")
+	while true do
+		task.wait(PUSH_INTERVAL)
+		pushLeaderboardData()
+	end
+end)
+
+pushLeaderboardData()
