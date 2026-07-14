@@ -1,0 +1,64 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+local localPlayer = Players.LocalPlayer
+local ATTRIBUTE_NAME = "HideOtherPlayersStats"
+
+if localPlayer:GetAttribute(ATTRIBUTE_NAME) == nil then
+	localPlayer:SetAttribute(ATTRIBUTE_NAME, false)
+end
+
+local function shouldHide()
+	return localPlayer:GetAttribute(ATTRIBUTE_NAME) == true
+end
+
+local function applyToBillboard(billboard)
+	if not billboard or not billboard:IsA("BillboardGui") or billboard.Name ~= "TitleGui" then
+		return
+	end
+
+	local head = billboard.Parent
+	local character = head and head.Parent
+	local owner = character and Players:GetPlayerFromCharacter(character)
+	if not owner then
+		return
+	end
+
+	if owner == localPlayer then
+		billboard.Enabled = true
+	else
+		billboard.Enabled = not shouldHide()
+	end
+end
+
+local function refreshAll()
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		local head = character and character:FindFirstChild("Head")
+		local billboard = head and head:FindFirstChild("TitleGui")
+		if billboard then
+			applyToBillboard(billboard)
+		end
+	end
+end
+
+Workspace.DescendantAdded:Connect(function(obj)
+	if obj:IsA("BillboardGui") and obj.Name == "TitleGui" then
+		task.defer(applyToBillboard, obj)
+	end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function()
+		task.delay(1, refreshAll)
+	end)
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	player.CharacterAdded:Connect(function()
+		task.delay(1, refreshAll)
+	end)
+end
+
+localPlayer:GetAttributeChangedSignal(ATTRIBUTE_NAME):Connect(refreshAll)
+refreshAll()
