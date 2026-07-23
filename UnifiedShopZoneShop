@@ -84,26 +84,26 @@ local ITEMS = {
 		{ title = "Avatar", subtitle = "1299 Robux", kind = "paidAura", auraKey = "Avatar", templateType = "Rainbow", displayImage = "rbxassetid://104760172781708" },
 		{ title = "Wally West", subtitle = "899 Robux", kind = "paidAura", auraKey = "WallyWest", templateType = "Rainbow", displayImage = "rbxassetid://95727520343484" },
 		{ title = "Black Flash", subtitle = "499 Robux", kind = "paidAura", auraKey = "BlackFlash", templateType = "Rainbow", displayImage = "rbxassetid://129255149735754" },
-		{ title = "Electric Aura", subtitle = "600 Wins", kind = "winsAura", auraKey = "Electric", templateType = "Rainbow", displayImage = "rbxassetid://77033589161706" },
-		{ title = "Fire Aura", subtitle = "250 Wins", kind = "winsAura", auraKey = "Fire", templateType = "Rainbow", displayImage = "rbxassetid://87458098010829" },
-		{ title = "Water Aura", subtitle = "150 Wins", kind = "winsAura", auraKey = "Water", templateType = "Rainbow", displayImage = "rbxassetid://137639264422801" },
+		{ title = "Electric Aura", subtitle = "600 Wins", kind = "winsAura", auraKey = "Electric", templateType = "Grey", displayImage = "rbxassetid://77033589161706" },
+		{ title = "Fire Aura", subtitle = "250 Wins", kind = "winsAura", auraKey = "Fire", templateType = "Grey", displayImage = "rbxassetid://87458098010829" },
+		{ title = "Water Aura", subtitle = "150 Wins", kind = "winsAura", auraKey = "Water", templateType = "Grey", displayImage = "rbxassetid://137639264422801" },
 	},
 	Potions = {
-		{ title = "2x Wins Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://79157848799163" },
-		{ title = "2x Wins Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://105320587882728" },
+		{ title = "2x Wins Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Rainbow", displayImage = "rbxassetid://79157848799163" },
+		{ title = "2x Wins Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Rainbow", displayImage = "rbxassetid://105320587882728" },
 		{ title = "2x Wins Potion", subtitle = "30 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://81859741866782" },
 		{ title = "2x Wins Potion", subtitle = "15 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://126129791085979" },
 		{ title = "2x Wins Potion", subtitle = "5 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://109524518605107" },
-		{ title = "2x EXP Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://90983479828289" },
-		{ title = "2x EXP Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://122332682699946" },
+		{ title = "2x EXP Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Rainbow", displayImage = "rbxassetid://90983479828289" },
+		{ title = "2x EXP Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Rainbow", displayImage = "rbxassetid://122332682699946" },
 		{ title = "2x EXP Potion", subtitle = "30 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://96195673347645" },
 		{ title = "2x EXP Potion", subtitle = "15 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://119279536309930" },
 		{ title = "2x EXP Potion", subtitle = "5 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://81530000530213" },
 	},
 	Boosts = {
-		{ title = "Unlock Sounds", subtitle = "Premium keyboard sounds pack", kind = "gamepass", gamePassId = 1883716978, templateType = "Grey", displayImage = "rbxassetid://118966413047643" },
-		{ title = "2x Rebirth", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896830688, templateType = "Grey", displayImage = "rbxassetid://134937326548804" },
-		{ title = "2x Wins", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896192678, templateType = "Grey", displayImage = "rbxassetid://89669811636325" },
+		{ title = "2x Wins", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896192678, templateType = "Rainbow", displayImage = "rbxassetid://89669811636325" },
+		{ title = "2x Rebirth", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896830688, templateType = "Rainbow", displayImage = "rbxassetid://134937326548804" },
+		{ title = "Unlock Sounds", subtitle = "Premium keyboard sounds pack", kind = "gamepass", gamePassId = 1883716978, templateType = "Rainbow", displayImage = "rbxassetid://118966413047643"},
 	},
 }
 
@@ -117,7 +117,7 @@ end
 
 local function applyCompactListLayout()
 	if itemListLayout then
-		itemListLayout.Padding = UDim.new(0, 4)
+		itemListLayout.Padding = UDim.new(0, 12)
 	end
 	if itemListPadding then
 		itemListPadding.PaddingTop = UDim.new(0, 4)
