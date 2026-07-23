@@ -47,6 +47,9 @@ greyTemplate.Visible = false
 playerRowTemplate.Visible = false
 giftFrame.Visible = false
 
+local itemListLayout = itemList:FindFirstChildWhichIsA("UIListLayout")
+local itemListPadding = itemList:FindFirstChildWhichIsA("UIPadding")
+
 local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
 if not uiScale then
 	uiScale = Instance.new("UIScale")
@@ -73,35 +76,34 @@ local SECTION_ORDER = { "Trampolines", "Auras", "Potions", "Boosts" }
 
 local ITEMS = {
 	Trampolines = {
-		{ title = "5x Trampoline", subtitle = "Golden Trampoline", kind = "gamepass", gamePassId = 1899793448, templateType = "Rainbow" },
-		{ title = "10x Trampoline", subtitle = "Electric Trampoline", kind = "gamepass", gamePassId = 1898311468, templateType = "Rainbow" },
-		{ title = "100x Trampoline", subtitle = "Admin Trampoline", kind = "gamepass", gamePassId = 1898449573, templateType = "Rainbow" },
+		{ title = "100x Trampoline", subtitle = "Admin Trampoline", kind = "gamepass", gamePassId = 1898449573, templateType = "Rainbow", displayImage = "rbxassetid://74036610833906" },
+		{ title = "10x Trampoline", subtitle = "Electric Trampoline", kind = "gamepass", gamePassId = 1898311468, templateType = "Rainbow", displayImage = "rbxassetid://87868375371349" },
+		{ title = "5x Trampoline", subtitle = "Golden Trampoline", kind = "gamepass", gamePassId = 1899793448, templateType = "Rainbow", displayImage = "rbxassetid://119283917098622" },
 	},
 	Auras = {
-		{ title = "Water Aura", subtitle = "150 Wins", kind = "winsAura", auraKey = "Water", templateType = "Grey" },
-		{ title = "Fire Aura", subtitle = "250 Wins", kind = "winsAura", auraKey = "Fire", templateType = "Grey" },
-		{ title = "Electric Aura", subtitle = "600 Wins", kind = "winsAura", auraKey = "Electric", templateType = "Grey" },
-		{ title = "Black Flash", subtitle = "499 Robux", kind = "paidAura", auraKey = "BlackFlash", templateType = "Rainbow" },
-		{ title = "Wally West", subtitle = "899 Robux", kind = "paidAura", auraKey = "WallyWest", templateType = "Rainbow" },
-		{ title = "Avatar", subtitle = "1299 Robux", kind = "paidAura", auraKey = "Avatar", templateType = "Rainbow" },
+		{ title = "Avatar", subtitle = "1299 Robux", kind = "paidAura", auraKey = "Avatar", templateType = "Rainbow", displayImage = "rbxassetid://104760172781708" },
+		{ title = "Wally West", subtitle = "899 Robux", kind = "paidAura", auraKey = "WallyWest", templateType = "Rainbow", displayImage = "rbxassetid://95727520343484" },
+		{ title = "Black Flash", subtitle = "499 Robux", kind = "paidAura", auraKey = "BlackFlash", templateType = "Rainbow", displayImage = "rbxassetid://129255149735754" },
+		{ title = "Electric Aura", subtitle = "600 Wins", kind = "winsAura", auraKey = "Electric", templateType = "Rainbow", displayImage = "rbxassetid://77033589161706" },
+		{ title = "Fire Aura", subtitle = "250 Wins", kind = "winsAura", auraKey = "Fire", templateType = "Rainbow", displayImage = "rbxassetid://87458098010829" },
+		{ title = "Water Aura", subtitle = "150 Wins", kind = "winsAura", auraKey = "Water", templateType = "Rainbow", displayImage = "rbxassetid://137639264422801" },
 	},
 	Potions = {
-		-- PUT YOUR REAL PRODUCT IDS HERE
-		{ title = "2x Wins Potion", subtitle = "5 Minutes", kind = "product", productId = 0, templateType = "Grey" },
-		{ title = "2x Wins Potion", subtitle = "15 Minutes", kind = "product", productId = 0, templateType = "Grey" },
-		{ title = "2x Wins Potion", subtitle = "30 Minutes", kind = "product", productId = 0, templateType = "Grey" },
-		{ title = "2x Wins Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Rainbow" },
-		{ title = "2x Wins Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Rainbow" },
-		{ title = "2x EXP Potion", subtitle = "5 Minutes", kind = "product", productId = 0, templateType = "Grey" },
-		{ title = "2x EXP Potion", subtitle = "15 Minutes", kind = "product", productId = 0, templateType = "Grey" },
-		{ title = "2x EXP Potion", subtitle = "30 Minutes", kind = "product", productId = 0, templateType = "Grey" },
-		{ title = "2x EXP Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Rainbow" },
-		{ title = "2x EXP Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Rainbow" },
+		{ title = "2x Wins Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://79157848799163" },
+		{ title = "2x Wins Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://105320587882728" },
+		{ title = "2x Wins Potion", subtitle = "30 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://81859741866782" },
+		{ title = "2x Wins Potion", subtitle = "15 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://126129791085979" },
+		{ title = "2x Wins Potion", subtitle = "5 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://109524518605107" },
+		{ title = "2x EXP Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://90983479828289" },
+		{ title = "2x EXP Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://122332682699946" },
+		{ title = "2x EXP Potion", subtitle = "30 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://96195673347645" },
+		{ title = "2x EXP Potion", subtitle = "15 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://119279536309930" },
+		{ title = "2x EXP Potion", subtitle = "5 Minutes", kind = "product", productId = 0, templateType = "Grey", displayImage = "rbxassetid://81530000530213" },
 	},
 	Boosts = {
-		{ title = "2x Wins", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896192678, templateType = "Rainbow" },
-		{ title = "2x Rebirth", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896830688, templateType = "Rainbow" },
-		{ title = "Unlock Sounds", subtitle = "Premium keyboard sounds pack", kind = "gamepass", gamePassId = 1883716978, templateType = "Rainbow" },
+		{ title = "Unlock Sounds", subtitle = "Premium keyboard sounds pack", kind = "gamepass", gamePassId = 1883716978, templateType = "Grey", displayImage = "rbxassetid://118966413047643" },
+		{ title = "2x Rebirth", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896830688, templateType = "Grey", displayImage = "rbxassetid://134937326548804" },
+		{ title = "2x Wins", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896192678, templateType = "Grey", displayImage = "rbxassetid://89669811636325" },
 	},
 }
 
@@ -113,11 +115,23 @@ local function clearGeneratedFrames(container, keepSet)
 	end
 end
 
+local function applyCompactListLayout()
+	if itemListLayout then
+		itemListLayout.Padding = UDim.new(0, 4)
+	end
+	if itemListPadding then
+		itemListPadding.PaddingTop = UDim.new(0, 4)
+		itemListPadding.PaddingBottom = UDim.new(0, 4)
+		itemListPadding.PaddingLeft = UDim.new(0, 4)
+		itemListPadding.PaddingRight = UDim.new(0, 4)
+	end
+end
+
 local function refreshCanvas(scrollingFrame)
 	local layout = scrollingFrame:FindFirstChildWhichIsA("UIListLayout")
 	if layout then
 		RunService.Heartbeat:Wait()
-		scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 12)
+		scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 8)
 	end
 end
 
@@ -174,6 +188,7 @@ local function buyItem(item)
 		if item.productId and item.productId > 0 then
 			MarketplaceService:PromptProductPurchase(player, item.productId)
 		else
+			warn("[UnifiedShop] Potion product id missing for", item.title, item.subtitle)
 		end
 	elseif item.kind == "winsAura" then
 		if item.auraKey then
@@ -186,15 +201,19 @@ local function buyItem(item)
 	end
 end
 
-local function createCategoryHeader(sectionName)
+local function createCategoryHeader(sectionName, layoutOrder)
 	local header = categoryHeaderTemplate:Clone()
 	header.Name = sectionName .. "Header"
 	header.Visible = true
-	header.LayoutOrder = #itemList:GetChildren() + 1
+	header.LayoutOrder = layoutOrder
 	header.Parent = itemList
+	if header:IsA("Frame") then
+		header.Size = UDim2.new(1, 0, 0, 24)
+	end
 	local titleLabel = header:WaitForChild("TitleLabel")
 	titleLabel.Text = sectionName
 	sectionHeaders[sectionName] = header
+	return header
 end
 
 local function createItemCard(item, layoutOrder)
@@ -209,11 +228,16 @@ local function createItemCard(item, layoutOrder)
 	local subtitleLabel = card:WaitForChild("SubtitleLabel")
 	local buyButton = card:WaitForChild("BuyButton")
 	local giftButton = card:WaitForChild("GiftButton")
+	local displayImage = card:FindFirstChild("Display")
 
 	titleLabel.Text = item.title
 	subtitleLabel.Text = item.subtitle
 	buyButton.Text = "Buy"
 	giftButton.Text = "Gift"
+
+	if displayImage and displayImage:IsA("ImageLabel") then
+		displayImage.Image = item.displayImage or ""
+	end
 
 	buyButton.MouseButton1Click:Connect(function()
 		buyItem(item)
@@ -231,10 +255,11 @@ local function renderAllSections()
 		[rainbowTemplate] = true,
 		[greyTemplate] = true,
 	})
+	applyCompactListLayout()
 
 	local layoutOrder = 1
 	for _, sectionName in ipairs(SECTION_ORDER) do
-		createCategoryHeader(sectionName)
+		createCategoryHeader(sectionName, layoutOrder)
 		layoutOrder += 1
 
 		for _, item in ipairs(ITEMS[sectionName] or {}) do
@@ -248,6 +273,7 @@ local function renderAllSections()
 end
 
 local function openShop(source)
+	print("[UnifiedShop] openShop called from", tostring(source))
 	if animating or shopOpen then return end
 	animating = true
 	shopOpen = true
@@ -281,6 +307,7 @@ local function closeShop(manualClose)
 	animating = false
 	if manualClose and insideZone then
 		manualClosedInsideZone = true
+		print("[UnifiedShop] manually closed inside zone; waiting for re-entry")
 	end
 end
 
@@ -308,6 +335,7 @@ end
 local function getZonePart()
 	local zone = workspace:FindFirstChild(SHOP_ZONE_PART_NAME, true)
 	if zone and not zone:IsA("BasePart") then
+		warn("[UnifiedShop] ShopZone found but it is not a BasePart:", zone:GetFullName())
 		return nil
 	end
 	return zone
@@ -326,6 +354,7 @@ RunService.RenderStepped:Connect(function()
 	if not zone then
 		if not warnedNoZone then
 			warnedNoZone = true
+			warn("[UnifiedShop] No part named ShopZone found in Workspace descendants")
 		end
 		return
 	end
@@ -337,12 +366,14 @@ RunService.RenderStepped:Connect(function()
 	local nowInside = isPointInsidePart(root.Position, zone)
 	if nowInside and not insideZone then
 		insideZone = true
+		print("[UnifiedShop] Entered zone")
 		if not manualClosedInsideZone then
 			openShop("zone")
 		end
 	elseif not nowInside and insideZone then
 		insideZone = false
 		manualClosedInsideZone = false
+		print("[UnifiedShop] Left zone")
 		if shopOpen then
 			closeShop(false)
 		end
@@ -352,3 +383,4 @@ end)
 mainFrame.Visible = false
 mainFrame.Position = openPos
 renderAllSections()
+print("[UnifiedShop] Client shop controller ready (v4 compact templates)")
