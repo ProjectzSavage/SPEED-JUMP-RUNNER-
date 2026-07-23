@@ -1,0 +1,354 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local equipAuraRemote = ReplicatedStorage:WaitForChild("EquipAura")
+local promptAuraPurchaseRemote = ReplicatedStorage:WaitForChild("PromptAuraPurchase")
+
+local openShopEvent = ReplicatedStorage:FindFirstChild("OpenUnifiedShopPanel")
+if not openShopEvent then
+	openShopEvent = Instance.new("BindableEvent")
+	openShopEvent.Name = "OpenUnifiedShopPanel"
+	openShopEvent.Parent = ReplicatedStorage
+end
+
+local SHOP_ZONE_PART_NAME = "ShopZone"
+
+local gui = playerGui:WaitForChild("UnifiedShopGUI")
+local mainFrame = gui:WaitForChild("MainFrame")
+local headerFrame = mainFrame:WaitForChild("HeaderFrame")
+local closeButton = headerFrame:WaitForChild("CloseButton")
+local tabsFrame = mainFrame:WaitForChild("TabsFrame")
+local trampolinesTabButton = tabsFrame:WaitForChild("TrampolinesTabButton")
+local aurasTabButton = tabsFrame:WaitForChild("AurasTabButton")
+local potionsTabButton = tabsFrame:WaitForChild("PotionsTabButton")
+local boostsTabButton = tabsFrame:WaitForChild("BoostsTabButton")
+local contentFrame = mainFrame:WaitForChild("ContentFrame")
+local itemList = contentFrame:WaitForChild("ItemList")
+local categoryHeaderTemplate = itemList:WaitForChild("CategoryHeaderTemplate")
+local rainbowTemplate = itemList:WaitForChild("RainbowTemplate")
+local greyTemplate = itemList:WaitForChild("GreyTemplate")
+
+local giftFrame = mainFrame:WaitForChild("GiftFrame")
+local giftCloseButton = giftFrame:WaitForChild("CloseButton")
+local playersList = giftFrame:WaitForChild("PlayersList")
+local playerRowTemplate = playersList:WaitForChild("PlayerRowTemplate")
+local giftInfoLabel = giftFrame:WaitForChild("InfoLabel")
+local giftHeaderLabel = giftFrame:WaitForChild("HeaderLabel")
+
+categoryHeaderTemplate.Visible = false
+rainbowTemplate.Visible = false
+greyTemplate.Visible = false
+playerRowTemplate.Visible = false
+giftFrame.Visible = false
+
+local uiScale = mainFrame:FindFirstChildOfClass("UIScale")
+if not uiScale then
+	uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = mainFrame
+end
+
+local openPos = mainFrame.Position
+local closedPos = UDim2.new(openPos.X.Scale, openPos.X.Offset, openPos.Y.Scale + 0.06, openPos.Y.Offset)
+local animating = false
+local shopOpen = false
+local insideZone = false
+local manualClosedInsideZone = false
+local giftingItem = nil
+local sectionHeaders = {}
+local sectionOffsets = {}
+
+local TEMPLATE_BY_TYPE = {
+	Rainbow = rainbowTemplate,
+	Grey = greyTemplate,
+}
+
+local SECTION_ORDER = { "Trampolines", "Auras", "Potions", "Boosts" }
+
+local ITEMS = {
+	Trampolines = {
+		{ title = "5x Trampoline", subtitle = "Golden Trampoline", kind = "gamepass", gamePassId = 1899793448, templateType = "Rainbow" },
+		{ title = "10x Trampoline", subtitle = "Electric Trampoline", kind = "gamepass", gamePassId = 1898311468, templateType = "Rainbow" },
+		{ title = "100x Trampoline", subtitle = "Admin Trampoline", kind = "gamepass", gamePassId = 1898449573, templateType = "Rainbow" },
+	},
+	Auras = {
+		{ title = "Water Aura", subtitle = "150 Wins", kind = "winsAura", auraKey = "Water", templateType = "Grey" },
+		{ title = "Fire Aura", subtitle = "250 Wins", kind = "winsAura", auraKey = "Fire", templateType = "Grey" },
+		{ title = "Electric Aura", subtitle = "600 Wins", kind = "winsAura", auraKey = "Electric", templateType = "Grey" },
+		{ title = "Black Flash", subtitle = "499 Robux", kind = "paidAura", auraKey = "BlackFlash", templateType = "Rainbow" },
+		{ title = "Wally West", subtitle = "899 Robux", kind = "paidAura", auraKey = "WallyWest", templateType = "Rainbow" },
+		{ title = "Avatar", subtitle = "1299 Robux", kind = "paidAura", auraKey = "Avatar", templateType = "Rainbow" },
+	},
+	Potions = {
+		-- PUT YOUR REAL PRODUCT IDS HERE
+		{ title = "2x Wins Potion", subtitle = "5 Minutes", kind = "product", productId = 0, templateType = "Grey" },
+		{ title = "2x Wins Potion", subtitle = "15 Minutes", kind = "product", productId = 0, templateType = "Grey" },
+		{ title = "2x Wins Potion", subtitle = "30 Minutes", kind = "product", productId = 0, templateType = "Grey" },
+		{ title = "2x Wins Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Rainbow" },
+		{ title = "2x Wins Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Rainbow" },
+		{ title = "2x EXP Potion", subtitle = "5 Minutes", kind = "product", productId = 0, templateType = "Grey" },
+		{ title = "2x EXP Potion", subtitle = "15 Minutes", kind = "product", productId = 0, templateType = "Grey" },
+		{ title = "2x EXP Potion", subtitle = "30 Minutes", kind = "product", productId = 0, templateType = "Grey" },
+		{ title = "2x EXP Potion", subtitle = "1 Hour", kind = "product", productId = 0, templateType = "Rainbow" },
+		{ title = "2x EXP Potion", subtitle = "24 Hours", kind = "product", productId = 0, templateType = "Rainbow" },
+	},
+	Boosts = {
+		{ title = "2x Wins", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896192678, templateType = "Rainbow" },
+		{ title = "2x Rebirth", subtitle = "Permanent gamepass", kind = "gamepass", gamePassId = 1896830688, templateType = "Rainbow" },
+		{ title = "Unlock Sounds", subtitle = "Premium keyboard sounds pack", kind = "gamepass", gamePassId = 1883716978, templateType = "Rainbow" },
+	},
+}
+
+local function clearGeneratedFrames(container, keepSet)
+	for _, child in ipairs(container:GetChildren()) do
+		if child:IsA("Frame") and not keepSet[child] then
+			child:Destroy()
+		end
+	end
+end
+
+local function refreshCanvas(scrollingFrame)
+	local layout = scrollingFrame:FindFirstChildWhichIsA("UIListLayout")
+	if layout then
+		RunService.Heartbeat:Wait()
+		scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 12)
+	end
+end
+
+local function recalculateSectionOffsets()
+	sectionOffsets = {}
+	RunService.Heartbeat:Wait()
+	for sectionName, header in pairs(sectionHeaders) do
+		if header and header.Parent then
+			sectionOffsets[sectionName] = math.max(0, header.AbsolutePosition.Y - itemList.AbsolutePosition.Y + itemList.CanvasPosition.Y)
+		end
+	end
+end
+
+local function scrollToSection(sectionName)
+	local targetY = sectionOffsets[sectionName] or 0
+	TweenService:Create(itemList, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		CanvasPosition = Vector2.new(0, targetY),
+	}):Play()
+end
+
+local function openGiftMenu(item)
+	giftingItem = item
+	giftHeaderLabel.Text = "Gift To - " .. tostring(item.title)
+	giftInfoLabel.Text = "Gifting UI only for now"
+	giftFrame.Visible = true
+
+	clearGeneratedFrames(playersList, { [playerRowTemplate] = true })
+	for _, otherPlayer in ipairs(Players:GetPlayers()) do
+		if otherPlayer ~= player then
+			local row = playerRowTemplate:Clone()
+			row.Name = "Player_" .. otherPlayer.Name
+			row.Visible = true
+			row.Parent = playersList
+
+			local nameLabel = row:WaitForChild("NameLabel")
+			local selectButton = row:WaitForChild("SelectButton")
+			nameLabel.Text = otherPlayer.Name
+
+			selectButton.MouseButton1Click:Connect(function()
+				giftInfoLabel.Text = "Coming soon: gifting to " .. otherPlayer.Name
+			end)
+		end
+	end
+
+	refreshCanvas(playersList)
+end
+
+local function buyItem(item)
+	if item.kind == "gamepass" then
+		if item.gamePassId and item.gamePassId > 0 then
+			MarketplaceService:PromptGamePassPurchase(player, item.gamePassId)
+		end
+	elseif item.kind == "product" then
+		if item.productId and item.productId > 0 then
+			MarketplaceService:PromptProductPurchase(player, item.productId)
+		else
+		end
+	elseif item.kind == "winsAura" then
+		if item.auraKey then
+			equipAuraRemote:FireServer(item.auraKey)
+		end
+	elseif item.kind == "paidAura" then
+		if item.auraKey then
+			promptAuraPurchaseRemote:FireServer(item.auraKey)
+		end
+	end
+end
+
+local function createCategoryHeader(sectionName)
+	local header = categoryHeaderTemplate:Clone()
+	header.Name = sectionName .. "Header"
+	header.Visible = true
+	header.LayoutOrder = #itemList:GetChildren() + 1
+	header.Parent = itemList
+	local titleLabel = header:WaitForChild("TitleLabel")
+	titleLabel.Text = sectionName
+	sectionHeaders[sectionName] = header
+end
+
+local function createItemCard(item, layoutOrder)
+	local template = TEMPLATE_BY_TYPE[item.templateType] or greyTemplate
+	local card = template:Clone()
+	card.Name = (item.title:gsub("%s+", "")) .. "_Card_" .. tostring(layoutOrder)
+	card.Visible = true
+	card.LayoutOrder = layoutOrder
+	card.Parent = itemList
+
+	local titleLabel = card:WaitForChild("TitleLabel")
+	local subtitleLabel = card:WaitForChild("SubtitleLabel")
+	local buyButton = card:WaitForChild("BuyButton")
+	local giftButton = card:WaitForChild("GiftButton")
+
+	titleLabel.Text = item.title
+	subtitleLabel.Text = item.subtitle
+	buyButton.Text = "Buy"
+	giftButton.Text = "Gift"
+
+	buyButton.MouseButton1Click:Connect(function()
+		buyItem(item)
+	end)
+
+	giftButton.MouseButton1Click:Connect(function()
+		openGiftMenu(item)
+	end)
+end
+
+local function renderAllSections()
+	sectionHeaders = {}
+	clearGeneratedFrames(itemList, {
+		[categoryHeaderTemplate] = true,
+		[rainbowTemplate] = true,
+		[greyTemplate] = true,
+	})
+
+	local layoutOrder = 1
+	for _, sectionName in ipairs(SECTION_ORDER) do
+		createCategoryHeader(sectionName)
+		layoutOrder += 1
+
+		for _, item in ipairs(ITEMS[sectionName] or {}) do
+			createItemCard(item, layoutOrder)
+			layoutOrder += 1
+		end
+	end
+
+	refreshCanvas(itemList)
+	recalculateSectionOffsets()
+end
+
+local function openShop(source)
+	if animating or shopOpen then return end
+	animating = true
+	shopOpen = true
+	giftFrame.Visible = false
+	renderAllSections()
+	mainFrame.Visible = true
+	mainFrame.Position = closedPos
+	uiScale.Scale = 0.94
+
+	local t1 = TweenService:Create(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = openPos })
+	local t2 = TweenService:Create(uiScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+	t1:Play()
+	t2:Play()
+	t1.Completed:Wait()
+	animating = false
+end
+
+local function closeShop(manualClose)
+	if animating or not shopOpen then return end
+	animating = true
+	giftFrame.Visible = false
+	local t1 = TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = closedPos })
+	local t2 = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.94 })
+	t1:Play()
+	t2:Play()
+	t1.Completed:Wait()
+	mainFrame.Visible = false
+	mainFrame.Position = openPos
+	uiScale.Scale = 1
+	shopOpen = false
+	animating = false
+	if manualClose and insideZone then
+		manualClosedInsideZone = true
+	end
+end
+
+closeButton.MouseButton1Click:Connect(function()
+	closeShop(true)
+end)
+
+giftCloseButton.MouseButton1Click:Connect(function()
+	giftFrame.Visible = false
+end)
+
+trampolinesTabButton.MouseButton1Click:Connect(function() scrollToSection("Trampolines") end)
+aurasTabButton.MouseButton1Click:Connect(function() scrollToSection("Auras") end)
+potionsTabButton.MouseButton1Click:Connect(function() scrollToSection("Potions") end)
+boostsTabButton.MouseButton1Click:Connect(function() scrollToSection("Boosts") end)
+
+local function isPointInsidePart(worldPoint, part)
+	local localPoint = part.CFrame:PointToObjectSpace(worldPoint)
+	local half = part.Size * 0.5
+	return math.abs(localPoint.X) <= half.X
+		and math.abs(localPoint.Y) <= half.Y
+		and math.abs(localPoint.Z) <= half.Z
+end
+
+local function getZonePart()
+	local zone = workspace:FindFirstChild(SHOP_ZONE_PART_NAME, true)
+	if zone and not zone:IsA("BasePart") then
+		return nil
+	end
+	return zone
+end
+
+openShopEvent.Event:Connect(function()
+	manualClosedInsideZone = false
+	openShop("button")
+end)
+
+local warnedNoZone = false
+RunService.RenderStepped:Connect(function()
+	local zone = getZonePart()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not zone then
+		if not warnedNoZone then
+			warnedNoZone = true
+		end
+		return
+	end
+	warnedNoZone = false
+	if not root then
+		return
+	end
+
+	local nowInside = isPointInsidePart(root.Position, zone)
+	if nowInside and not insideZone then
+		insideZone = true
+		if not manualClosedInsideZone then
+			openShop("zone")
+		end
+	elseif not nowInside and insideZone then
+		insideZone = false
+		manualClosedInsideZone = false
+		if shopOpen then
+			closeShop(false)
+		end
+	end
+end)
+
+mainFrame.Visible = false
+mainFrame.Position = openPos
+renderAllSections()
