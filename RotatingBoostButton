@@ -1,192 +1,28 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-local stats = player:WaitForChild("Stats")
 
-local promptBoostRemote = ReplicatedStorage:WaitForChild("PromptExpBoostPurchase")
-local promptWinsBoostRemote = ReplicatedStorage:WaitForChild("PromptWinsBoostGamepassPurchase")
-local promptRebirthBoostRemote = ReplicatedStorage:WaitForChild("PromptRebirthBoostGamepassPurchase")
+local openShopEvent = ReplicatedStorage:FindFirstChild("OpenUnifiedShopPanel")
+if not openShopEvent then
+	openShopEvent = Instance.new("BindableEvent")
+	openShopEvent.Name = "OpenUnifiedShopPanel"
+	openShopEvent.Parent = ReplicatedStorage
+end
 
--- Put this button anywhere you want. Example:
--- MainMenuButtons > RotatingBoostButton
--- Inside it, add:
---   OfferLabel (TextLabel)
---   Optional: PriceLabel (TextLabel)
---   Optional: Icon (ImageLabel)
 local container = playerGui:WaitForChild("MainMenuButtons"):WaitForChild("Frame")
 local button = container:WaitForChild("RotatingBoostButton")
 local offerLabel = button:FindFirstChild("OfferLabel") or button:FindFirstChildWhichIsA("TextLabel")
 local priceLabel = button:FindFirstChild("PriceLabel")
-local icon = button:FindFirstChild("Icon") or button:FindFirstChildWhichIsA("ImageLabel")
 
-local ROTATE_EVERY = 5
-local ICON_ROTATION_SPEED = 55 -- degrees per second
-local GLOW_AFTER = 3
-
--- EDIT THESE ICON IDS IF YOU WANT
-local WINS_ICON = "rbxassetid://78906870339024"
-local REBIRTH_ICON = "rbxassetid://82472836128481"
-local EXP_ICON = "rbxassetid://117679217507447"
-
-local offers = {
-	{
-		key = "Wins2x",
-		label = "2x Wins",
-		priceText = "2x Wins",
-		icon = WINS_ICON,
-		onClick = function()
-			promptWinsBoostRemote:FireServer()
-		end,
-	},
-	{
-		key = "Rebirth2x",
-		label = "2x Rebirth",
-		priceText = "2x Rebirths",
-		icon = REBIRTH_ICON,
-		onClick = function()
-			promptRebirthBoostRemote:FireServer()
-		end,
-	},
-	{
-		key = "ExpNext",
-		label = "2x EXP",
-		priceText = "NEXT BOOST",
-		icon = EXP_ICON,
-		onClick = function()
-			local expBoost = player:FindFirstChild("ExpBoost")
-			local current = expBoost and expBoost.Value or 1
-			local nextBoost
-			if current < 1 then current = 1 end
-			if current >= 128 then
-				return
-			elseif current == 1 then
-				nextBoost = 2
-			else
-				nextBoost = math.min(current * 2, 128)
-			end
-			if nextBoost then
-				promptBoostRemote:FireServer(nextBoost)
-			end
-		end,
-	},
-}
-
-local currentIndex = 1
-local glowTweenIn
-local glowTweenOut
-local iconSpinConnection
-local timeOnOffer = 0
-
-local function getNextExpLabel()
-	local expBoost = player:FindFirstChild("ExpBoost")
-	local current = expBoost and expBoost.Value or 1
-	if current < 1 then current = 1 end
-	if current >= 128 then
-		return "MAX EXP", "OWNED"
-	elseif current == 1 then
-		return "2x EXP", "NEXT BOOST"
-	else
-		return tostring(math.min(current * 2, 128)) .. "x EXP", "NEXT BOOST"
-	end
+if offerLabel then
+	offerLabel.Text = "SHOP"
 end
-
-local function stopGlow()
-	if glowTweenIn then glowTweenIn:Cancel() end
-	if glowTweenOut then glowTweenOut:Cancel() end
-	button.BackgroundColor3 = button.BackgroundColor3
-	local stroke = button:FindFirstChildOfClass("UIStroke")
-	if stroke then
-		stroke.Thickness = 2
-		stroke.Transparency = 0
-	end
-end
-
-local function startGlow()
-	local stroke = button:FindFirstChildOfClass("UIStroke")
-	if not stroke then return end
-	if glowTweenIn then glowTweenIn:Cancel() end
-	if glowTweenOut then glowTweenOut:Cancel() end
-
-	glowTweenIn = TweenService:Create(stroke, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-		Thickness = 5,
-		Transparency = 0.15,
-	})
-	glowTweenOut = TweenService:Create(stroke, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {
-		Thickness = 2,
-		Transparency = 0,
-	})
-
-	glowTweenIn:Play()
-	glowTweenIn.Completed:Connect(function(state)
-		if state == Enum.PlaybackState.Completed then
-			glowTweenOut:Play()
-		end
-	end)
-end
-
-local function applyOfferVisual(index)
-	local offer = offers[index]
-	if not offer then return end
-
-	local label = offer.label
-	local price = offer.priceText
-
-	if offer.key == "ExpNext" then
-		label, price = getNextExpLabel()
-	end
-
-	if offerLabel then
-		offerLabel.Text = label
-	end
-	if priceLabel then
-		priceLabel.Text = price
-	end
-	if icon and offer.icon and offer.icon ~= "rbxassetid://0" and offer.icon ~= "" then
-		icon.Image = offer.icon
-	end
-
-	timeOnOffer = 0
-	stopGlow()
+if priceLabel then
+	priceLabel.Text = "SHOP"
 end
 
 button.MouseButton1Click:Connect(function()
-	local offer = offers[currentIndex]
-	if offer and offer.onClick then
-		offer.onClick()
-	end
+	openShopEvent:Fire()
 end)
-
-task.spawn(function()
-	while button.Parent do
-		task.wait(ROTATE_EVERY)
-		currentIndex += 1
-		if currentIndex > #offers then
-			currentIndex = 1
-		end
-		applyOfferVisual(currentIndex)
-	end
-end)
-
-RunService.RenderStepped:Connect(function(dt)
-	if icon then
-		icon.Rotation = (icon.Rotation + ICON_ROTATION_SPEED * dt) % 360
-	end
-
-	timeOnOffer += dt
-	if timeOnOffer >= GLOW_AFTER and timeOnOffer - dt < GLOW_AFTER then
-		startGlow()
-	end
-end)
-
-local expBoost = player:WaitForChild("ExpBoost")
-expBoost.Changed:Connect(function()
-	if offers[currentIndex].key == "ExpNext" then
-		applyOfferVisual(currentIndex)
-	end
-end)
-
-applyOfferVisual(currentIndex)
